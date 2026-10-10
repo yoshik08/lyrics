@@ -354,16 +354,34 @@ export default async function handler(req, res) {
     } catch { return null; }
   }
 
+  if (req.query.appledebug === "1") {
+    const out = { hasToken: process.env.APPLE_MEDIA_USER_TOKEN !== undefined };
+    if (out.hasToken) out.tokenLen = process.env.APPLE_MEDIA_USER_TOKEN.length;
+    try {
+      const ac2 = new AbortController();
+      const to2 = setTimeout(() => ac2.abort(), 10000);
+      const dev = await getAppleToken(() => ac2.signal);
+      clearTimeout(to2);
+      out.devToken = dev ? "ok len " + dev.length : "NULL";
+      if (dev && out.hasToken) {
+        const r = await fetch("https://amp-api.music.apple.com/v1/catalog/us/search?term=test&types=songs&limit=1", {
+          headers: { Authorization: "Bearer " + dev, "Media-User-Token": process.env.APPLE_MEDIA_USER_TOKEN, Origin: "https://music.apple.com" },
+          signal: ac2.signal
+        });
+        out.searchStatus = r.status;
+      }
+    } catch (e) { out.error = String(e).slice(0, 200); }
+    return res.json(out);
+  }
+
   async function fetchApple(queryTitle, reqMode = "word") {
     const acObj = new AbortController();
     const to = setTimeout(() => acObj.abort(), 8000);
     const signal = acObj.signal;
     try {
-      if (process.env.APPLE_MEDIA_USER_TOKEN === undefined) { console.log("[apple-debug] no token env"); return null; }
+      if (process.env.APPLE_MEDIA_USER_TOKEN === undefined) return null;
       const mut = process.env.APPLE_MEDIA_USER_TOKEN;
-      console.log("[apple-debug] token present, len:", mut.length);
       const dev = await getAppleToken(() => signal);
-      console.log("[apple-debug] dev token:", dev ? "got it, len " + dev.length : "NULL");
       if (!mut || !dev) return null;
       
       const reqHeaders = {
