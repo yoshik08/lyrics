@@ -15,8 +15,14 @@
 
   /* ---------- small dot cursor ---------- */
   var cursorDot = document.getElementById("cursorDot");
-  if (cursorDot && window.matchMedia("(pointer: fine)").matches) {
+  if (cursorDot) {
+    var dotShown = false;
     document.addEventListener("mousemove", function (e) {
+      if (!dotShown) {
+        dotShown = true;
+        cursorDot.style.display = "block";
+        document.body.classList.add("has-dot-cursor");
+      }
       cursorDot.style.transform =
         "translate(" + e.clientX + "px," + e.clientY + "px) translate(-50%,-50%)";
     }, { passive: true });
