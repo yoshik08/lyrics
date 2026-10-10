@@ -693,6 +693,21 @@
     var _k = localStorage.getItem("kLeadMs");
     if (_k !== null) kLeadMs = parseInt(_k, 10) || 0;
   } catch (e) {}
+  // Provider-specific default offsets (exact spec, do not tune).
+  // Line mode: Apple -150ms, all others +400ms.
+  // Karaoke mode: Apple -150ms, Kugou -100ms, Netease -400ms, all others +150ms.
+  function providerDefaultLead(source, provider, karaoke) {
+    var src = String(source || "").toLowerCase();
+    var prov = String(provider || "").toLowerCase();
+    if (karaoke) {
+      if (src === "apple") return -150;
+      if (prov === "kugou" || src === "kugou") return -100;
+      if (src === "netease") return -400;
+      return 150;
+    }
+    if (src === "apple") return -150;
+    return 400;
+  }
   var karaokeMode = true;
   try { karaokeMode = localStorage.getItem("karaokeMode") !== "false"; } catch(e) {}
   var lyrStore = new Map();
@@ -1056,6 +1071,16 @@
     var entry = lyrStore.get(key);
     if (!entry) return;
     lyrActiveIdx = -1; kActiveIdx = -1;
+    // Apply provider defaults on cache-hit too (if user hasn't customized).
+    if (!kTrackHasCustomLead && entry.wordSource) {
+      kLeadMs = providerDefaultLead(entry.wordSource, entry.wordProvider, true);
+    }
+    try {
+      var _devCustom = spState.deviceId ? localStorage.getItem("lyrLead:" + spState.deviceId) : null;
+      if (_devCustom === null && entry.lineSource) {
+        lyrLeadMs = providerDefaultLead(entry.lineSource, null, false);
+      }
+    } catch (e) {}
     if (entry.lines) renderSynced(entry.lines, entry.wordLines, durationMs);
     else if (entry.plain) renderPlain(entry.plain);
     else renderNoLyrics();
@@ -1096,7 +1121,29 @@
       if (dWord && dWord.lines && dWord.lines.length && dWord.wordSync) {
         entry.wordLines = dWord.lines;
       }
-      
+      // Record provider sources for default-offset lookup.
+      // Line view uses the line-mode winner; karaoke uses the word-mode winner.
+      if (dLine && dLine.source) entry.lineSource = dLine.source;
+      if (dWord && dWord.source) {
+        entry.wordSource = dWord.source;
+        if (dWord.provider) entry.wordProvider = dWord.provider;
+        if (dWord.calib) entry.calib = dWord.calib;
+      }
+
+      // Apply provider-specific default offsets (unless the user customized).
+      // Karaoke: track-level custom wins; otherwise provider default.
+      if (!kTrackHasCustomLead) {
+        kLeadMs = providerDefaultLead(entry.wordSource, entry.wordProvider, true);
+      }
+      // Line mode: device-level custom wins; otherwise provider default.
+      // (Device custom is checked in renderSpotify; here we set the fallback.)
+      try {
+        var _devCustom = spState.deviceId ? localStorage.getItem("lyrLead:" + spState.deviceId) : null;
+        if (_devCustom === null) {
+          lyrLeadMs = providerDefaultLead(entry.lineSource, null, false);
+        }
+      } catch (e) {}
+
       lyrPut(key, entry);
       if (spState.key === key && lyricsOverlay.classList.contains("open"))
         renderLyrEntry(key, durationMs);
