@@ -87,11 +87,17 @@ function median(sorted) {
 export function calibrate(candidate, refs, opts) {
   const provider = (opts && opts.provider) || "";
   const estimates = [];
+  let hasValidRef = false;
   for (const ref of (refs || [])) {
     if (!ref.lines || !ref.lines.length) continue;
+    hasValidRef = true;
     const pairs = matchLines(candidate.lines, ref.lines);
     const est = estimateOffset(pairs);
     if (est) estimates.push({ ...est, name: ref.name });
+  }
+
+  if (hasValidRef && estimates.length === 0) {
+    return { rejected: true, reason: "no overlap with reference (wrong song?)" };
   }
 
   // filter usable: mad <= 150
