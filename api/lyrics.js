@@ -82,6 +82,25 @@ function firstSigWord(s) {
 }
 
 export default async function handler(req, res) {
+  if (req.query.appledebug === "1") {
+    const out = { hasToken: process.env.APPLE_MEDIA_USER_TOKEN !== undefined };
+    if (out.hasToken) out.tokenLen = process.env.APPLE_MEDIA_USER_TOKEN.length;
+    try {
+      const ac2 = new AbortController();
+      const to2 = setTimeout(() => ac2.abort(), 10000);
+      const dev = await getAppleToken(() => ac2.signal);
+      clearTimeout(to2);
+      out.devToken = dev ? "ok len " + dev.length : "NULL";
+      if (dev && out.hasToken) {
+        const r = await fetch("https://amp-api.music.apple.com/v1/catalog/us/search?term=test&types=songs&limit=1", {
+          headers: { Authorization: "Bearer " + dev, "Media-User-Token": process.env.APPLE_MEDIA_USER_TOKEN, Origin: "https://music.apple.com" },
+          signal: ac2.signal
+        });
+        out.searchStatus = r.status;
+      }
+    } catch (e) { out.error = String(e).slice(0, 200); }
+    return res.json(out);
+  }
   const artist = String(req.query.artist || "").slice(0, 200);
   const title = String(req.query.title || "").slice(0, 200);
   const duration = parseFloat(req.query.duration) || 0; // seconds
@@ -352,26 +371,6 @@ export default async function handler(req, res) {
       const lines = d.lines.map(ln => ({ time: ln.start, text: (ln.text || "").trim() })).filter(ln => ln.text);
       return { name: "ytmusic", lines };
     } catch { return null; }
-  }
-
-  if (req.query.appledebug === "1") {
-    const out = { hasToken: process.env.APPLE_MEDIA_USER_TOKEN !== undefined };
-    if (out.hasToken) out.tokenLen = process.env.APPLE_MEDIA_USER_TOKEN.length;
-    try {
-      const ac2 = new AbortController();
-      const to2 = setTimeout(() => ac2.abort(), 10000);
-      const dev = await getAppleToken(() => ac2.signal);
-      clearTimeout(to2);
-      out.devToken = dev ? "ok len " + dev.length : "NULL";
-      if (dev && out.hasToken) {
-        const r = await fetch("https://amp-api.music.apple.com/v1/catalog/us/search?term=test&types=songs&limit=1", {
-          headers: { Authorization: "Bearer " + dev, "Media-User-Token": process.env.APPLE_MEDIA_USER_TOKEN, Origin: "https://music.apple.com" },
-          signal: ac2.signal
-        });
-        out.searchStatus = r.status;
-      }
-    } catch (e) { out.error = String(e).slice(0, 200); }
-    return res.json(out);
   }
 
   async function fetchApple(queryTitle, reqMode = "word") {
