@@ -311,5 +311,5 @@ html[data-motion="off"] .k-tape-word.active .emo { animation: none; }
   background: #fff; z-index: 9999; pointer-events: none; display: none; transform: translate(-50%, -50%); }
 @media (pointer: fine) {
   .cursor-dot { display: block; }
-  body, a, button { cursor: none; }
+  body *, body { cursor: none !important; }
 }
