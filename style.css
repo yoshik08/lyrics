@@ -1,0 +1,302 @@
+/* ============================================================
+   lyrics — standalone synced-lyrics + karaoke app
+   UI copied from the yoshik.xyz lyrics overlay (same classes,
+   same markup, same pipeline). dark by design.
+   ============================================================ */
+
+/* ---------- base ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+html {
+  background: #08080a; color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+body { min-height: 100vh; min-height: 100dvh; overflow: hidden; }
+:root {
+  --k-inactive: rgba(255,255,255,0.3);
+  --k-accent: #fff;
+}
+:focus-visible { outline: 2px solid rgba(255,255,255,.7); outline-offset: 3px; border-radius: 6px; }
+
+/* self-hosted display font (served by the main site) */
+@font-face {
+  font-family: "Hanken Grotesk"; font-style: normal; font-weight: 400 700;
+  font-display: swap;
+  src: url("/assets/fonts/HankenGrotesk-400.woff2") format("woff2");
+}
+
+/* ---------- landing ---------- */
+.landing {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  background: #08080a; overflow: hidden;
+}
+.landing-bg {
+  position: absolute; inset: -60px; pointer-events: none;
+  background:
+    radial-gradient(42% 38% at 30% 30%, rgba(80, 60, 220, .35), transparent 70%),
+    radial-gradient(40% 36% at 72% 62%, rgba(20, 140, 120, .28), transparent 70%),
+    radial-gradient(30% 30% at 55% 85%, rgba(200, 60, 120, .22), transparent 70%);
+  filter: blur(70px) brightness(.8);
+}
+.landing-in { position: relative; z-index: 1; text-align: center; padding: 0 24px; }
+.landing-title {
+  font-family: "Hanken Grotesk", sans-serif; font-weight: 600;
+  font-size: clamp(22px, 4vw, 34px); letter-spacing: -0.015em; margin: 0 0 22px;
+}
+.landing-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: #fff; color: #000; border: none; border-radius: 99px;
+  font-family: "Hanken Grotesk", sans-serif; font-weight: 600; font-size: 15px;
+  padding: 13px 28px; cursor: pointer; text-decoration: none;
+  transition: transform .15s ease;
+}
+.landing-btn:hover { transform: scale(1.05); }
+.landing-btn:active { transform: scale(.97); }
+.landing-sub { color: rgba(255,255,255,.5); font-size: 13px; margin: 18px 0 0; }
+.landing-err { color: #fb7185; font-size: 13px; margin: 12px 0 0; min-height: 18px; }
+
+/* ---------- lyrics page (copied from the personal-site overlay) ---------- */
+/* lyrics button + synced lyrics overlay - apple music inspired */
+.lyrics-overlay.open { opacity: 1; visibility: visible; }
+.lyrics-bg {
+  position: absolute; inset: -40px; background-size: cover; background-position: center;
+  filter: blur(70px) brightness(.45); transform: scale(1.1); pointer-events: none;
+  transition: background-image 0.5s ease;
+}
+.lyrics-bg::after {
+  content: ""; position: absolute; inset: 0;
+  background: var(--lyr-bg-gradient, transparent);
+  mix-blend-mode: overlay; opacity: 0.8;
+  pointer-events: none;
+}
+.lyrics-controls {
+  position: absolute; top: 22px; right: 28px; z-index: 100;
+  display: flex; gap: 12px; align-items: center;
+  pointer-events: auto;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.lyrics-controls:hover {
+  opacity: 1 !important;
+  transform: none !important;
+  pointer-events: auto !important;
+}
+.lyrics-close {
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); color: #fff;
+  width: 38px; height: 38px; border-radius: 50%; font-size: 14px; cursor: pointer; flex-shrink: 0;
+  transition: background .15s ease;
+  pointer-events: auto;
+}
+.lyrics-close:hover { background: rgba(255,255,255,.18); }
+.karaoke-toggle {
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); color: #fff;
+  height: 38px; border-radius: 99px; font-size: 13px; font-family: "Hanken Grotesk", sans-serif; font-weight: 500;
+  padding: 0 16px; cursor: pointer; display: flex; align-items: center; gap: 6px;
+  transition: all .2s ease; backdrop-filter: blur(8px);
+  pointer-events: auto;
+}
+.karaoke-toggle:hover { background: rgba(255,255,255,.18); transform: scale(1.05); }
+.karaoke-toggle:active { transform: scale(0.95); }
+.karaoke-toggle.active {
+  background: #fff; color: #000; border-color: #fff;
+}
+.karaoke-toggle.disabled {
+  opacity: 0.4; cursor: not-allowed; pointer-events: none;
+}
+.sync-group {
+  display: flex; align-items: center; gap: 0;
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14);
+  border-radius: 99px; height: 38px;
+  backdrop-filter: blur(8px); overflow: hidden;
+  pointer-events: auto;
+  transition: transform .2s ease;
+}
+.sync-group:hover { transform: scale(1.05); }
+.sync-group:active { transform: scale(.95); }
+.sync-btn {
+  background: transparent; border: none; color: #fff; height: 100%;
+  border-left: 1px solid rgba(255,255,255,.14);
+  border-right: 1px solid rgba(255,255,255,.14);
+  font-size: 13px; font-family: "Hanken Grotesk", sans-serif; font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  padding: 0 14px; cursor: pointer; display: flex; align-items: center; gap: 6px;
+  transition: background .2s ease; pointer-events: auto; min-width: 74px; justify-content: center;
+}
+.sync-btn:hover { background: rgba(255,255,255,.12); }
+.sync-btn.spinning svg { animation: syncSpin .6s linear infinite; }
+.sync-btn.done { background: #fff; color: #000; border-color: #fff; }
+.sync-nudge {
+  width: 32px; height: 100%; border-radius: 0;
+  background: transparent; border: none; color: #fff;
+  font-size: 15px; line-height: 1; cursor: pointer; pointer-events: auto;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s ease;
+}
+.sync-nudge:hover { background: rgba(255,255,255,.12); }
+@keyframes syncSpin { to { transform: rotate(360deg); } }
+html[data-motion="off"] .sync-btn.spinning svg { animation: none; }
+
+/* karaoke view styles */
+.lyrics-karaoke {
+  position: absolute; inset: 0; z-index: 10;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  pointer-events: none;
+}
+.k-top {
+  margin-top: 30px;
+  display: flex; flex-direction: column; align-items: center;
+  z-index: 12;
+  flex-shrink: 0;
+}
+.k-top-cover {
+  width: min(160px, 30vw); height: min(160px, 30vw);
+  border-radius: 12px; object-fit: cover;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+}
+.k-top-title {
+  margin-top: 14px; font-family: "Hanken Grotesk", sans-serif; font-weight: 700; font-size: 16px; color: #fff;
+}
+.k-top-artist {
+  margin-top: 4px; font-family: "Hanken Grotesk", sans-serif; font-size: 13px; color: rgba(255,255,255,0.7);
+}
+.k-top-prog {
+  margin-top: 12px; width: 140px; height: 3px; background: rgba(255,255,255,0.15); border-radius: 99px; overflow: hidden;
+}
+.k-top-prog i {
+  display: block; height: 100%; width: 0; background: #fff;
+}
+.k-tape-stage {
+  margin-top: 24px;
+  flex: 1; position: relative; width: 100%;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 40px, #000 calc(100% - 40px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent, #000 40px, #000 calc(100% - 40px), transparent 100%);
+}
+.k-tape-col {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 20px; padding: 50vh 20px;
+  transition: none;
+  will-change: transform;
+  -webkit-backface-visibility: hidden; backface-visibility: hidden;
+}
+.k-tape-word {
+  font-family: "Bagel Fat One", "Black Han Sans", sans-serif;
+  font-size: clamp(32px, 8vw, 80px);
+  color: var(--k-inactive, rgba(255,255,255,0.3));
+  text-align: center;
+  max-width: 90vw;
+  line-height: 1.2;
+  position: relative;
+  z-index: 1;
+  padding: 8px 16px;
+  white-space: nowrap;
+  opacity: 0.3;
+}
+.k-tape-word.font-bubbly {
+  font-family: "Rubik Bubbles", "Black Han Sans", sans-serif;
+}
+.k-tape-word.active {
+  color: #000;
+  z-index: 2;
+  opacity: 1;
+  transform: rotate(var(--rot, 0deg)) scale(var(--scale, 1));
+  background: var(--k-accent, #fff);
+  clip-path: var(--clip, polygon(0 0, 100% 0, 100% 100%, 0 100%));
+  animation: kTapePop 120ms cubic-bezier(0.2, 1.4, 0.4, 1) forwards;
+}
+  .k-tape-word.k-rest {
+    opacity: 0.2;
+    filter: grayscale(1);
+    transform: rotate(0deg) scale(0.9);
+  }
+@keyframes kTapePop {
+  0% { transform: rotate(var(--rot, 0deg)) scale(calc(var(--scale, 1) * 1)); }
+  50% { transform: rotate(var(--rot, 0deg)) scale(calc(var(--scale, 1) * 1.08)); }
+  100% { transform: rotate(var(--rot, 0deg)) scale(calc(var(--scale, 1) * 1)); }
+}
+
+/* classic layout */
+.lyrics-body {
+  position: relative; z-index: 1; flex: 1; min-height: 0;
+  display: flex; align-items: center; gap: 6vw; padding: 24px 6vw;
+}
+.lyrics-side { flex: 0 0 auto; width: min(38vw, 540px); }
+.lyrics-side img {
+  width: 100%; aspect-ratio: 1; border-radius: 14px; object-fit: cover; background: #1a1a1e;
+  box-shadow: 0 24px 70px rgba(0,0,0,.55); display: block;
+}
+.lyrics-title { color: #fff; font-family: "Hanken Grotesk", sans-serif; font-weight: 600; font-size: 17px; margin: 18px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lyrics-title a { color: inherit; text-decoration: none; }
+.lyrics-title a[href]:hover { text-decoration: underline; }
+.lyrics-artist { color: rgba(255,255,255,.55); font-size: 14px; margin: 5px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lyrics-artist a { color: inherit; text-decoration: none; }
+.lyrics-artist a[href]:hover { text-decoration: underline; color: #fff; }
+.lyrics-progress { margin-top: 20px; height: 5px; border-radius: 999px; background: rgba(255,255,255,.14); overflow: hidden; }
+.lyrics-progress i { display: block; height: 100%; width: 0; border-radius: inherit; background: rgba(255,255,255,.85); }
+.lyrics-lines {
+  flex: 1; min-width: 0; height: 100%; overflow-y: auto;
+  scrollbar-width: none; -ms-overflow-style: none;
+  mask-image: linear-gradient(to bottom, transparent, #000 10%, #000 92%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 10%, #000 92%, transparent);
+}
+.lyrics-lines::-webkit-scrollbar { display: none; }
+.lyr-line {
+  color: rgba(255,255,255,.32);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-weight: 700; letter-spacing: -0.015em;
+  font-size: clamp(22px, 2.9vw, 34px); line-height: 1.35; margin: 0; padding: 16px 0;
+  transition: color .12s ease;
+}
+.lyr-line.active { color: #fff; font-size: clamp(30px, 4vw, 48px); }
+.lyr-line.active .w { color: rgba(255,255,255,.35); }
+.lyr-line.active .w .ch { transition: color .08s ease; }
+.lyr-line.active .w .ch.lit { color: #fff; }
+.lyr-line.past { color: rgba(255,255,255,.45); }
+.emo { display: inline-block; margin-left: .25em; font-size: 1em; line-height: 1; }
+.ios-emo { height: 1em; width: 1em; vertical-align: -0.12em; display: inline-block; }
+.k-tape-word .emo .ios-emo { height: 1em; width: 1em; vertical-align: -0.12em; }
+.k-tape-word.active .emo { animation: emoPop .35s cubic-bezier(.2,1.6,.4,1); }
+@keyframes emoPop { 0% { transform: scale(.4) rotate(-15deg); } 60% { transform: scale(1.35) rotate(8deg); } 100% { transform: scale(1); } }
+html[data-motion="off"] .k-tape-word.active .emo { animation: none; }
+.lyrics-hint { position: relative; z-index: 2; text-align: center; color: rgba(255,255,255,.4); font-size: 12px; padding: 0 20px 26px; margin: 0; min-height: 18px; }
+.lyrics-side-text { min-width: 0; }
+@media (max-width: 700px) {
+  .lyrics-close { top: 16px; right: 18px; }
+  .lyrics-body { flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 16px; padding: 74px 7vw 16px; }
+  .lyrics-side { width: 100%; display: flex; align-items: center; gap: 12px; }
+  .lyrics-side img { width: 54px; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+  .lyrics-title { margin: 0; font-size: 15px; }
+  .lyrics-artist { font-size: 12.5px; margin-top: 3px; }
+  .lyrics-side-text { flex: 1; min-width: 0; }
+  .lyrics-side { flex-wrap: wrap; }
+  .lyrics-progress { flex: 1 1 100%; margin-top: 6px; }
+  .lyr-line { padding: 12px 0; }
+
+/* ---------- playback controls (same visual language as the overlay) ---------- */
+.playback-controls { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
+.playback-controls[hidden] { display: none; }
+.lyrics-karaoke .playback-controls { justify-content: center; margin-top: 12px; }
+.pb-btn {
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); color: #fff;
+  width: 38px; height: 38px; border-radius: 50%; cursor: pointer; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background .15s ease, transform .15s ease;
+  pointer-events: auto;
+}
+.pb-btn:hover { background: rgba(255,255,255,.18); transform: scale(1.06); }
+.pb-btn:active { transform: scale(.94); }
+.pb-btn.pb-play { width: 46px; height: 46px; }
+.pb-time {
+  color: rgba(255,255,255,.55); font-size: 12px; margin-left: 4px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+@media (max-width: 700px) {
+  .playback-controls { margin-top: 10px; }
+  .lyrics-side { align-items: center; }
+}
