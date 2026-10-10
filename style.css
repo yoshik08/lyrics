@@ -306,10 +306,7 @@ html[data-motion="off"] .k-tape-word.active .emo { animation: none; }
   .lyrics-side { align-items: center; }
 }
 
-/* small dot cursor (fine pointers only) */
+/* small dot cursor */
 .cursor-dot { position: fixed; top: 0; left: 0; width: 8px; height: 8px; border-radius: 50%;
   background: #fff; box-shadow: 0 0 8px rgba(255,255,255,.8); z-index: 9999; pointer-events: none; display: none; transform: translate(-50%, -50%); }
-@media (pointer: fine) {
-  .cursor-dot { display: block; }
-  body *, body { cursor: none !important; }
-}
+body.has-dot-cursor, body.has-dot-cursor * { cursor: none !important; }
