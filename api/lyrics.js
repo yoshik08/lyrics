@@ -372,32 +372,15 @@ export default async function handler(req, res) {
 
       const rawRefs = [lrclibRef, ytmusicRef].filter(Boolean);
 
+      // Strict priority: first candidate to pass calibration wins.
       let bestRes = null;
       for (let i = 0; i < candidates.length; i++) {
         const { cand, provider } = candidates[i];
         const validRefs = rawRefs.filter(r => r.name !== provider);
         const res = calibrate(cand, validRefs, { provider });
-
         if (res.rejected) continue;
-
-        if (!bestRes) {
-          bestRes = { ...cand, lines: res.lines, calib: res.calib };
-          continue;
-        }
-
-        const confScores = { high: 3, medium: 2, prior: 1, none: 0 };
-        const sCurrent = confScores[res.calib.confidence] || 0;
-        const sBest = confScores[bestRes.calib.confidence] || 0;
-        const madCurrent = res.calib.mad ?? Infinity;
-        const madBest = bestRes.calib.mad ?? Infinity;
-
-        let isBetter = false;
-        if (sCurrent >= 2 && sBest < 2) isBetter = true;
-        else if (sCurrent >= 2 && sBest >= 2) isBetter = madCurrent < madBest;
-
-        if (isBetter) {
-          bestRes = { ...cand, lines: res.lines, calib: res.calib };
-        }
+        bestRes = { ...cand, lines: res.lines, calib: res.calib };
+        break;
       }
       // fall back to line mode (wordSync false) > empty
       if (bestRes) return bestRes;
