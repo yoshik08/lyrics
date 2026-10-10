@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>lyrics — yoshik</title>
+<meta name="description" content="synced lyrics + karaoke for whatever you're playing on spotify">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="karaoke-fonts.css">
+</head>
+<body>
+
+<!-- landing: shown only when not logged in -->
+<div class="landing" id="landingView">
+  <div class="landing-bg" aria-hidden="true"></div>
+  <div class="landing-in">
+    <p class="landing-title">Connect your Spotify account</p>
+    <a class="landing-btn" href="api/auth/login" data-hover>connect spotify</a>
+    <p class="landing-sub">synced lyrics + karaoke for whatever's playing</p>
+    <p class="landing-err" id="landingErr"></p>
+  </div>
+</div>
+
+<!-- lyrics page: the synced-lyrics UI, same markup/classes as the personal site overlay -->
+<div class="lyrics-overlay" id="lyricsOverlay" aria-hidden="true">
+  <div class="lyrics-bg" id="lyricsBg"></div>
+  <div class="lyrics-bg lyrics-bg-r" id="lyricsBgR"></div>
+  <div class="lyrics-bg lyrics-bg-c" id="lyricsBgC"></div>
+  <div class="lyrics-vignette"></div>
+  <div class="lyrics-controls" id="lyricsControls">
+    <div class="sync-group" id="syncGroup">
+      <button class="sync-nudge" id="syncMinus" data-hover aria-label="lyrics later by 50ms" title="Lyrics later (−50ms)">−</button>
+      <button class="sync-btn" id="syncBtn" data-hover aria-label="resync lyrics" title="Resync (S)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg><span id="syncLabel">Sync</span></button>
+      <button class="sync-nudge" id="syncPlus" data-hover aria-label="lyrics earlier by 50ms" title="Lyrics earlier (+50ms)">+</button>
+    </div>
+    <button class="karaoke-toggle" id="karaokeToggle" data-hover aria-label="toggle karaoke mode" title="Karaoke Mode (K)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg> Karaoke</button>
+    <button class="lyrics-close" id="lyricsClose" data-hover aria-label="log out" title="Log out"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></button>
+  </div>
+
+  <!-- classic view -->
+  <div class="lyrics-body" id="lyricsClassicView">
+    <div class="lyrics-side">
+      <img id="lyricsArt" alt="">
+      <div class="lyrics-side-text">
+        <p class="lyrics-title"><a id="lyricsTitle" target="_blank" rel="noopener"></a></p>
+        <p class="lyrics-artist" id="lyricsArtist"></p>
+      </div>
+      <div class="lyrics-progress"><i id="lyricsProg"></i></div>
+      <div class="playback-controls" id="playbackControls" hidden>
+        <button class="pb-btn" id="pbPrev" data-hover aria-label="previous track" title="Previous"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4h2v16H6zM20 4v16L9 12z"/></svg></button>
+        <button class="pb-btn pb-play" id="pbPlay" data-hover aria-label="play or pause" title="Play/Pause"><svg class="ic-play" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg><svg class="ic-pause" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="display:none"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg></button>
+        <button class="pb-btn" id="pbNext" data-hover aria-label="next track" title="Next"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 4h2v16h-2zM4 4v16l11-8z"/></svg></button>
+        <span class="pb-time" id="pbTime">0:00 / 0:00</span>
+      </div>
+    </div>
+    <div class="lyrics-lines" id="lyricsLines"></div>
+  </div>
+
+  <!-- karaoke view -->
+  <div class="lyrics-karaoke" id="lyricsKaraokeView" style="display: none;">
+    <div class="k-top">
+      <img class="k-top-cover" id="kTopCover" alt="">
+      <div class="k-top-title" id="kTopTitle"></div>
+      <div class="k-top-artist" id="kTopArtist"></div>
+      <div class="k-top-prog"><i id="kTopProg"></i></div>
+      <div class="playback-controls k-pb" id="playbackControlsK" hidden>
+        <button class="pb-btn" id="pbPrevK" data-hover aria-label="previous track" title="Previous"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4h2v16H6zM20 4v16L9 12z"/></svg></button>
+        <button class="pb-btn pb-play" id="pbPlayK" data-hover aria-label="play or pause" title="Play/Pause"><svg class="ic-play" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg><svg class="ic-pause" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="display:none"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg></button>
+        <button class="pb-btn" id="pbNextK" data-hover aria-label="next track" title="Next"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 4h2v16h-2zM4 4v16l11-8z"/></svg></button>
+        <span class="pb-time" id="pbTimeK">0:00 / 0:00</span>
+      </div>
+    </div>
+    <div class="k-tape-stage" id="karaokeStage">
+      <div class="k-tape-col" id="kTapeCol"></div>
+    </div>
+  </div>
+
+  <p class="lyrics-hint" id="lyricsHint"></p>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
