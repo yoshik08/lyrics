@@ -359,9 +359,11 @@ export default async function handler(req, res) {
     const to = setTimeout(() => acObj.abort(), 8000);
     const signal = acObj.signal;
     try {
-      if (process.env.APPLE_MEDIA_USER_TOKEN === undefined) return null;
+      if (process.env.APPLE_MEDIA_USER_TOKEN === undefined) { console.log("[apple-debug] no token env"); return null; }
       const mut = process.env.APPLE_MEDIA_USER_TOKEN;
+      console.log("[apple-debug] token present, len:", mut.length);
       const dev = await getAppleToken(() => signal);
+      console.log("[apple-debug] dev token:", dev ? "got it, len " + dev.length : "NULL");
       if (!mut || !dev) return null;
       
       const reqHeaders = {
