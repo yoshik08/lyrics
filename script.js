@@ -13,6 +13,15 @@
       landingErr = document.getElementById("landingErr"),
       lyricsOverlay = document.getElementById("lyricsOverlay");
 
+  /* ---------- small dot cursor ---------- */
+  var cursorDot = document.getElementById("cursorDot");
+  if (cursorDot && window.matchMedia("(pointer: fine)").matches) {
+    document.addEventListener("mousemove", function (e) {
+      cursorDot.style.transform =
+        "translate(" + e.clientX + "px," + e.clientY + "px) translate(-50%,-50%)";
+    }, { passive: true });
+  }
+
   /* ---------- rAF loop watchdog (copied) ---------- */
   var loopState = {};
   function loopTick(key) {
