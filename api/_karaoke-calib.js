@@ -43,6 +43,11 @@ export function matchLines(candLines, refLines) {
                     cWords[2] === rWords[2] &&
                     cWords[3] === rWords[3];
         }
+        // providers disagree on punctuation, ad-libs and line splits: fall back to
+        // token overlap (the 3s time-proximity check below still guards false hits)
+        if (!matched && cWords.length >= 3 && rWords.length >= 3) {
+          matched = jaccard(cWords, rWords) >= 0.75;
+        }
       }
       if (!matched) continue;
 
@@ -59,6 +64,14 @@ export function matchLines(candLines, refLines) {
     }
   }
   return pairs;
+}
+
+function jaccard(a, b) {
+  const A = new Set(a), B = new Set(b);
+  let inter = 0;
+  for (const w of A) if (B.has(w)) inter++;
+  const union = A.size + B.size - inter;
+  return union ? inter / union : 0;
 }
 
 // ─── 3. estimateOffset ─────────────────────────────────────────────
@@ -92,7 +105,9 @@ export function calibrate(candidate, refs, opts) {
     if (!ref.lines || !ref.lines.length) continue;
     hasValidRef = true;
     const pairs = matchLines(candidate.lines, ref.lines);
-    const est = estimateOffset(pairs);
+    // short songs / interludes never reach 6 matched lines: scale the bar down
+    const minPairs = candidate.lines.length < 14 ? 3 : 6;
+    const est = estimateOffset(pairs, minPairs);
     if (est) estimates.push({ ...est, name: ref.name });
   }
 

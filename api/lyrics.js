@@ -53,6 +53,11 @@ const LRCLIB_EXCLUDE = [
 
 const STOP_WORDS = new Set(["the", "a", "an"]);
 
+const hasWord = (haystack, kw) => new RegExp("(^|[^\\p{L}\\p{N}])" + kw + "($|[^\\p{L}\\p{N}])", "iu").test(haystack);
+// true when a candidate is a variant (live, remix, ...) the listener did not ask for
+const isUnwantedVariant = (candName, reqTitleLower) =>
+  LRCLIB_EXCLUDE.some((kw) => hasWord(candName, kw) && !hasWord(reqTitleLower, kw));
+
 function cleanTitle(raw) {
   let s = raw;
   let prev;
@@ -90,18 +95,14 @@ export default async function handler(req, res) {
   if (!artist || !title)
     return res.status(400).json({ error: "artist and title required" });
 
-  res.setHeader(
-    "Cache-Control",
-    "s-maxage=3600, stale-while-revalidate=86400"
-  );
+  const cacheHit = () => res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate=86400");
+  // an empty answer is usually "providers timed out", not "no lyrics exist": keep it short-lived
+  const cacheMiss = () => res.setHeader("Cache-Control", "s-maxage=30");
+  res.setHeader("Cache-Control", "no-store");
 
   const cleanedTitle = cleanTitle(title);
   const TIMEOUT = 4000;
-  const ac = (ms) => {
-    const c = new AbortController();
-    setTimeout(() => c.abort(), ms);
-    return c.signal;
-  };
+  const ac = (ms) => AbortSignal.timeout(ms);
 
   // --- Provider fetchers (all return a normalized result or null) ---
 
@@ -245,7 +246,7 @@ export default async function handler(req, res) {
 
       (arr || []).forEach((x) => {
         const tName = (x.trackName || x.name || "").toLowerCase();
-        if (LRCLIB_EXCLUDE.some((kw) => tName.includes(kw) && !reqTitleLower.includes(kw))) return;
+        if (isUnwantedVariant(tName, reqTitleLower)) return;
 
         const diff = duration > 0 ? Math.abs((x.duration || 0) - duration) : 0;
         if (duration > 0 && diff > 10) return;
@@ -292,7 +293,7 @@ export default async function handler(req, res) {
       if (duration > 60) {
         const nonEmpty = r.lines.filter((l) => (l.text || "").trim() !== "").length;
         if (nonEmpty < 12) return false;
-        if (last && typeof last.time === "number" && last.time < 0.6 * duration * 1000) {
+        if (last && typeof last.time === "number" && last.time < 0.5 * duration * 1000) {
           return false;
         }
       }
@@ -324,7 +325,7 @@ export default async function handler(req, res) {
         let best = null;
         for (const x of arr || []) {
           const tName = (x.trackName || x.name || "").toLowerCase();
-          if (LRCLIB_EXCLUDE.some((kw) => tName.includes(kw) && !reqTitleLower.includes(kw))) continue;
+          if (isUnwantedVariant(tName, reqTitleLower)) continue;
           const diff = duration > 0 ? Math.abs((x.duration || 0) - duration) : 0;
           if (duration > 0 && diff > 10) continue; // Widen tolerance for refs only
           if (x.syncedLyrics) { best = x; break; }
@@ -544,22 +545,27 @@ export default async function handler(req, res) {
     }
 
     if (mode === "word") {
-      if (winner && winner.wordSync) return res.json(winner);
+      if (winner && winner.wordSync) { cacheHit(); return res.json(winner); }
       
       // Fallback: If every word candidate is rejected/invalid, return wordSync:false with line lyrics
-      const lineWinner = await queryProvidersLine(cleanedTitle);
+      let lineWinner = await queryProvidersLine(cleanedTitle);
+      if (!hasLines(lineWinner) && cleanedTitle !== title) lineWinner = await queryProvidersLine(title);
       if (lineWinner && lineWinner.lines && lineWinner.lines.length) {
         lineWinner.lines.forEach(l => { delete l.words; delete l.ends; });
+        cacheHit();
         return res.json({ ...lineWinner, wordSync: false });
       }
+      cacheMiss();
       return res.json({ source: "none", wordSync: false, lines: [] });
     } else {
       if (winner && winner.lines && winner.lines.length) {
         winner.lines.forEach(l => { delete l.words; delete l.ends; });
+        cacheHit();
         return res.json(winner);
       }
-      if (winner && winner.plain) return res.json(winner);
+      if (winner && winner.plain) { cacheHit(); return res.json(winner); }
       if (winner && winner.rateLimited) return res.status(429).json({ error: "rate-limited" });
+      cacheMiss();
       return res.json({ source: "none", lines: [] });
     }
   } catch {
@@ -582,7 +588,7 @@ function parseYRC(yrc) {
     const lineStart = parseInt(hdr[1]);
     // parse word chunks: (startMs,durMs,0)text
     const chunks = [];
-    const re = /\((\d+),(\d+),\d+\)([^(]*)/g;
+    const re = /\((\d+),(\d+),\d+\)([\s\S]*?)(?=\(\d+,\d+,\d+\)|$)/g;
     let m;
     while ((m = re.exec(raw))) {
       const text = m[3];
@@ -643,14 +649,14 @@ function parseLRC(lrc) {
 
   lrc.split("\n").forEach((raw) => {
     const times = [];
-    const re = /\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
+    const re = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
     let m;
     while ((m = re.exec(raw))) {
       const frac = m[3] || "0";
       const mult = frac.length === 3 ? 1 : frac.length === 2 ? 10 : 100;
       let t = +m[1] * 60000 + +m[2] * 1000 + +frac * mult;
       t -= offset;
-      times.push(t);
+      times.push(Math.max(0, t));
     }
     const text = raw.replace(/\[.*?\]/g, "").replace(/<[^>]*>/g, "").trim();
     if (!text || !times.length) return;

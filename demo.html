@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>per-word lyrics — demo (placeholder lyrics)</title>
+<meta name="robots" content="noindex">
+<link rel="preload" href="assets/fonts/Bricolage-wdth.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+  @font-face { font-family: "Bricolage Grotesque"; font-weight: 200 800; font-stretch: 75% 100%; font-display: swap; src: url("assets/fonts/Bricolage-wdth.woff2") format("woff2"); }
+  html, body { margin: 0; height: 100%; background: #050507; overflow: hidden; }
+  .transport { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); z-index: 40; display: flex; align-items: center; gap: 12px;
+    width: min(560px, calc(100% - 24px)); padding: 8px 14px; border-radius: 99px; background: rgba(20,20,24,.72); border: 1px solid rgba(255,255,255,.1);
+    backdrop-filter: blur(14px); color: rgba(255,255,255,.75); font: 500 12px ui-monospace, Consolas, "SF Mono", monospace; transition: opacity .35s; }
+  .transport button { width: 34px; height: 34px; border-radius: 50%; border: 0; background: #fff; color: #08080a; cursor: pointer; font-size: 13px; }
+  .transport input[type=range] { flex: 1; accent-color: #ff3d8b; }
+  .transport output { min-width: 78px; text-align: right; font-variant-numeric: tabular-nums; }
+  body.idle .transport, body.idle .vk-settings { opacity: 0; }
+</style>
+<link rel="stylesheet" href="karaoke.css">
+</head>
+<body>
+<div class="vk" id="stage" data-style="visual"><div class="vk-glow"></div><div class="vk-world"></div></div>
+
+<div class="transport" id="transport">
+  <button id="play" aria-label="play / pause">❚❚</button>
+  <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="scrub">
+  <output id="clock">0:00 / 0:00</output>
+</div>
+<div class="vk-settings" id="settings"></div>
+
+<script src="karaoke.js"></script>
+<script>
+/* placeholder lyrics (not a real song): [text, start s, end s] — every line is spoken word by word */
+var SCRIPT = [
+  ["you can see the lights come up", 0.8],
+  ["telling me a story i can feel", 4.2],
+  ["number one on every wall tonight", 8.0],
+  ["we are running through the fire", 12.2],
+  ["hold on tight and don't let go", 16.0],
+  ["every heart is a song worth singing", 19.8],
+  ["moon on the water, sun on the roof", 24.4],
+  ["time keeps turning but we stay", 28.6]
+];
+var WORDS = [];
+SCRIPT.forEach(function (l, li) {
+  var ws = l[0].split(" "), t = l[1] * 1000, next = (SCRIPT[li + 1] ? SCRIPT[li + 1][1] : l[1] + 4) * 1000;
+  var span = Math.min(next - t - 500, ws.length * 520), step = span / ws.length;
+  ws.forEach(function (w, i) {
+    var s = t + i * step + (w.length > 5 ? 0 : 0);
+    WORDS.push({ text: w, start: Math.round(s), end: Math.round(s + step * (0.7 + Math.min(w.length, 8) * 0.04)), lineIdx: li });
+  });
+});
+var DURATION = WORDS[WORDS.length - 1].end + 1800;
+
+var stage = document.getElementById("stage");
+var vk = ykVK.create(stage, { reduced: function () { return matchMedia("(prefers-reduced-motion: reduce)").matches; } });
+vk.setWords(WORDS);
+
+/* settings bar: style + three colours, remembered */
+var DEFAULTS = { lyric: "#ffffff", highlight: "#ff3d8b", secondary: "#d6906c" };
+var LABELS = { ship: "Ship", fisheye: "Fisheye", "fisheye-visual": "Fisheye Visual", visual: "Visual" };
+var settings = document.getElementById("settings");
+var saved = {}; try { saved = JSON.parse(localStorage.getItem("vkDemo") || "{}"); } catch (e) {}
+var state = { style: saved.style || "visual", colors: Object.assign({}, DEFAULTS, saved.colors) };
+function persist() { try { localStorage.setItem("vkDemo", JSON.stringify(state)); } catch (e) {} }
+settings.innerHTML = '<div class="vk-seg" role="group" aria-label="style">' + ykVK.STYLES.map(function (s) {
+  return '<button data-s="' + s + '" aria-pressed="false">' + LABELS[s] + '</button>';
+}).join("") + '</div><div class="vk-colors">' + ["lyric", "highlight", "secondary"].map(function (c) {
+  return '<label><input type="color" data-c="' + c + '" aria-label="' + c + ' colour"><span>' + c + '</span></label>';
+}).join("") + '</div><button class="vk-reset" id="reset">reset</button>';
+function paint() {
+  vk.setStyle(state.style); vk.setColors(state.colors);
+  [].forEach.call(settings.querySelectorAll("[data-s]"), function (b) { b.setAttribute("aria-pressed", b.dataset.s === state.style); });
+  [].forEach.call(settings.querySelectorAll("[data-c]"), function (i) { i.value = state.colors[i.dataset.c]; });
+  persist();
+}
+settings.addEventListener("click", function (e) {
+  var b = e.target.closest("[data-s]"); if (b) { state.style = b.dataset.s; paint(); }
+  if (e.target.id === "reset") { state = { style: "visual", colors: Object.assign({}, DEFAULTS) }; paint(); }
+});
+settings.addEventListener("input", function (e) { var c = e.target.dataset.c; if (c) { state.colors[c] = e.target.value; paint(); } });
+paint();
+
+/* transport: a plain timer drives playback (swap for audio.currentTime to use an <audio> element) */
+var pos = 0, playing = true, last = performance.now(), snap = false;
+var play = document.getElementById("play"), scrub = document.getElementById("scrub"), clock = document.getElementById("clock");
+function fmt(ms) { var s = Math.floor(ms / 1000); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+play.onclick = function () { playing = !playing; play.textContent = playing ? "❚❚" : "▶"; };
+scrub.oninput = function () { pos = scrub.value / 1000 * DURATION; snap = true; };
+function frame(now) {
+  var dt = now - last; last = now;
+  if (playing) { pos += dt; if (pos > DURATION) pos = 0, snap = true; }
+  vk.update(pos, dt, snap); snap = false;
+  scrub.value = Math.round(pos / DURATION * 1000);
+  clock.textContent = fmt(pos) + " / " + fmt(DURATION);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.__demo = { seek: function (ms) { pos = ms; snap = true; }, pause: function () { playing = false; }, vk: vk };
+
+/* chrome fades away after a moment, like a player */
+var idle; function wake() { document.body.classList.remove("idle"); clearTimeout(idle); idle = setTimeout(function () { document.body.classList.add("idle"); }, 3500); }
+["pointermove", "keydown", "touchstart"].forEach(function (ev) { addEventListener(ev, wake, { passive: true }); }); wake();
+addEventListener("keydown", function (e) {
+  var i = +e.key; if (i >= 1 && i <= 4) { state.style = ykVK.STYLES[i - 1]; paint(); }
+  if (e.key === " ") { e.preventDefault(); play.click(); }
+});
+</script>
+</body>
+</html>

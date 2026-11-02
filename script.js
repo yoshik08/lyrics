@@ -3,7 +3,8 @@
    frontend logic adapted from the yoshik.xyz lyrics overlay:
    same sync engine, same karaoke rendering, same lyrics pipeline.
    differences: per-user spotify oauth (no server token), the overlay
-   is the whole page, karaoke defaults on, offset defaults to 0ms.
+   is the whole page, karaoke defaults on. lyrics sync = same code as the
+   personal site: no baked-in leads; a manual headphones toggle for bluetooth.
    ============================================================ */
 (function () {
   "use strict";
@@ -181,16 +182,11 @@
     spState.playing = live;
     spState.progressMs = d.progressMs;
     spState.durationMs = d.durationMs;
+    spState.isrc = d.isrc || null;
 
     if (d && d.deviceId && d.deviceId !== spState.deviceId) {
       spState.deviceId = d.deviceId;
       spState.deviceType = d.deviceType || "Device";
-      try {
-        var saved = localStorage.getItem("lyrLead:" + d.deviceId);
-        var _p = saved ? parseInt(saved, 10) : NaN;
-        lyrLeadMs = isNaN(_p) ? 0 : _p;
-      } catch (e) {}
-      if (typeof updateSyncLabel !== "undefined") updateSyncLabel();
     } else if (d && !d.deviceId) {
       spState.deviceId = null;
       spState.deviceType = null;
@@ -200,16 +196,13 @@
       setLyricsHeader();
       if (isNewTrack) {
         kSnapNext = true;
-        try {
-          var ksaved = localStorage.getItem("kLead:" + key);
-          if (ksaved !== null) {
-            kLeadMs = parseInt(ksaved, 10) || 0;
-            kTrackHasCustomLead = true;
-          } else {
-            kLeadMs = parseInt(localStorage.getItem("kLeadMs"), 10) || 0;
-            kTrackHasCustomLead = false;
-          }
-        } catch (e) {}
+        /* a song only deviates from the automatic lead when you nudged THAT song */
+        var savedLyr = lsInt("lLead:" + key, null);
+        lTrackHasCustomLead = savedLyr !== null;
+        lyrLeadMs = lTrackHasCustomLead ? savedLyr : 0;
+        var savedK = lsInt("kLead:" + key, null);
+        kTrackHasCustomLead = savedK !== null;
+        kLeadMs = kTrackHasCustomLead ? savedK : autoKLead(key);
         if (typeof updateSyncLabel !== "undefined") updateSyncLabel();
 
         lyrActiveIdx = -1;
@@ -293,16 +286,20 @@
       return "stop";
     }
     var key = s.d.trackId || (s.d.title + " :: " + s.d.artist);
-    var epoch = key + "|" + !!s.d.playing;
+    /* spotify's `timestamp` is the moment of the last playback state change (play, pause, skip,
+       scrub); it stays fixed during normal playback. when it moves, every older sample describes a
+       timeline that no longer exists, so drop them (a short backward scrub used to leave the
+       lyrics ~1.4s ahead for ~6s because it was not seen as a seek). */
+    var epoch = key + "|" + !!s.d.playing + "|" + (s.d.spotifyTs || "");
     var newTrack = key !== spClockKey;
+    var stateChanged = spEpoch !== null && epoch !== spEpoch;
     spClockKey = key;
-    if (hard || newTrack || !s.d.playing || !playbackClock.isPlaying()) {
+    if (hard || newTrack || stateChanged || !s.d.playing || !playbackClock.isPlaying()) {
       playbackClock.hardSet(s.pos, s.at, !!s.d.playing);
       spWin = s.d.playing ? [s] : [];
       spEpoch = epoch;
-      return newTrack ? "newtrack" : "reset";
+      return newTrack ? "newtrack" : stateChanged ? "state" : "reset";
     }
-    if (epoch !== spEpoch) { spWin = []; spEpoch = epoch; }
     spWin.push(s);
     if (spWin.length > SYNC.WINDOW) spWin.shift();
     var now = performance.now();
@@ -311,6 +308,7 @@
   function handleSample(d, tSend, tArr, hardSync) {
     if (!d) { scheduleNext(); return; }
     if (d.rateLimited) { scheduleNext(Math.max(6000, (d.retryAfter || 6) * 1000)); return; }
+    if (d.transient) { scheduleNext(4000); return; } /* keep the current track + lyrics on screen */
     var s = sampleFrom(d, tSend, tArr);
     var key = d.trackId || (d.title ? (d.title + " :: " + d.artist) : null);
     var isNewTrack = key !== spClockKey;
@@ -319,13 +317,19 @@
     var _hard = !!(hardSync || isNewTrack || seeked);
     if (_hard) spLastActivity = performance.now();
     renderSpotify(d);
-    applySample(s, _hard);
+    /* after a state change during playback (scrub, resume) poll quickly for a few seconds so the
+       sample window refills fast; not while paused, and not for ordinary corrections */
+    var applied = applySample(s, _hard);
+    if (!_hard && applied === "state" && d.playing) spLastActivity = performance.now();
     scheduleNext();
   }
+  /* coming back to the tab is a normal (soft) poll: a pause/skip/scrub made while away arrives as a
+     new spotify timestamp and resets the clock by itself (the old hard reset threw away the sample
+     history and made lyrics step back ~100ms on every alt-tab). long absences still start clean. */
+  var spHiddenAt = 0;
   document.addEventListener("visibilitychange", function() {
-    if (!document.hidden && loggedIn) {
-      pollSpotify(true);
-    }
+    if (document.hidden) { spHiddenAt = performance.now(); return; }
+    if (loggedIn) pollSpotify(performance.now() - spHiddenAt > 30000);
   });
   window.addEventListener("focus", function() {
     if (!document.hidden && loggedIn) {
@@ -512,7 +516,9 @@
   var APPLE_EMOJI_BASE = "https://cdn.jsdelivr.net/npm/emoji-datasource-apple@16.0.0/img/apple/64/";
   var EMOJI_REGEX;
   try {
-    EMOJI_REGEX = new RegExp("\\p{Extended_Pictographic}(\\uFE0F|\\u200D\\p{Extended_Pictographic}|\\p{Emoji_Modifier})*", "gu");
+    /* real emoji only: emoji-presentation chars, or pictographs explicitly followed by VS16 (plain
+       text symbols like arrows must stay text — they have no apple image) */
+    EMOJI_REGEX = new RegExp("(?:\\p{Emoji_Presentation}|\\p{Extended_Pictographic}\\uFE0F)(?:\\uFE0F|\\u200D(?:\\p{Emoji_Presentation}|\\p{Extended_Pictographic}\\uFE0F?)|\\p{Emoji_Modifier})*", "gu");
   } catch (e) {
     EMOJI_REGEX = null;
   }
@@ -699,32 +705,41 @@
   } else {
     runEmojiWalker();
   }
-  var lyrLeadMs = 0;
-  var kLeadMs = 0;
-  try {
-    var _l2 = localStorage.getItem("lyrLeadMs");
-    if (_l2 !== null) lyrLeadMs = parseInt(_l2, 10) || 0;
-
-    var _k = localStorage.getItem("kLeadMs");
-    if (_k !== null) kLeadMs = parseInt(_k, 10) || 0;
-  } catch (e) {}
-  // Provider-specific default offsets (exact spec, do not tune).
-  // Line mode: Apple -150ms, all others +400ms.
-  // Karaoke mode: Apple -150ms, Kugou -100ms, Netease -400ms, all others +150ms.
-  function providerDefaultLead(source, provider, karaoke) {
-    var src = String(source || "").toLowerCase();
-    var prov = String(provider || "").toLowerCase();
-    if (karaoke) {
-      if (src === "apple") return -150;
-      if (prov === "kugou" || src === "kugou") return -100;
-      if (src === "netease") return -400;
-      return 150;
-    }
-    if (src === "apple") return -150;
-    return 400;
+  /* integer from localStorage; 0 is a legitimate saved lead */
+  function lsInt(key, fallback) {
+    try {
+      var v = parseInt(localStorage.getItem(key), 10);
+      return isNaN(v) ? fallback : v;
+    } catch (e) { return fallback; }
   }
+  /* lyric leads (ms added to the playback clock before looking up the line/word).
+     line view: 0 for every source; karaoke: per word source (autoKLead). a track only deviates when
+     you nudge it. there are NO baked-in compensations: bluetooth delay is a manual toggle below. */
+  var lyrLeadMs = 0;
+  var kLeadMs = 150;
+  try {
+    if (localStorage.getItem("lyrLeadV") !== "4") {
+      /* clean slate: older builds shifted and saved offsets silently (mouse wheel over the sync pill,
+         provider presets, a global default that leaked into every song) */
+      var stale = [];
+      for (var li = 0; li < localStorage.length; li++) {
+        var lk = localStorage.key(li);
+        if (/^(kLead|lLead|lyrLead):/.test(lk) || lk === "kLeadMs" || lk === "lyrLeadMs") stale.push(lk);
+      }
+      stale.forEach(function (k) { localStorage.removeItem(k); });
+      localStorage.setItem("lyrLeadV", "4");
+    }
+  } catch (e) {}
   var karaokeMode = true;
   try { karaokeMode = localStorage.getItem("karaokeMode") !== "false"; } catch(e) {}
+  var karaokePref = karaokeMode; /* the user's choice; forced-off for word-less songs doesn't change it */
+  /* bluetooth headphones play audio late (codec + radio buffering; spotify reports the app's
+     position, not what reaches your ears). a manual toggle, OFF by default: -225ms is the value
+     measured by ear on yoshik's own headphones, not a universal number. line and word modes alike. */
+  var HEADPHONES_MS = -225;
+  var headphonesOn = false;
+  try { headphonesOn = localStorage.getItem("ykHeadphones") === "1"; } catch (e) {}
+  var lTrackHasCustomLead = false;
   var lyrStore = new Map();
   var lyrInflight = {};
   var lyrRaf = 0, lyrActiveIdx = -1, lyrUserScrollAt = 0, lyrRenderedKey = null;
@@ -736,6 +751,7 @@
   var kLastFrameTime = 0;
   var kLastLyrPos = 0;
   var kTrackHasCustomLead = false;
+  var lyrFailUntil = {}, lyrTries = {};
 
   function resetKIdle() {
     if (kIdleTimer) clearTimeout(kIdleTimer);
@@ -780,10 +796,20 @@
     return [Math.round(h * 360), Math.round(s * 100), Math.round(l * 100)];
   }
 
+  var colorToken = 0;
   function extractDominantColors(imgSrc) {
+    var token = ++colorToken;
     var img = new Image();
     img.crossOrigin = "Anonymous";
+    img.onerror = function () {};
     img.onload = function() {
+      if (token !== colorToken) return; /* a newer track's artwork already won */
+      try { paintDominantColors(img); } catch (e) { /* tainted canvas: keep the default backdrop */ }
+    };
+    img.src = imgSrc;
+  }
+  function paintDominantColors(img) {
+    {
       var cvs = document.createElement("canvas");
       var ctx = cvs.getContext("2d", { willReadFrequently: true });
       cvs.width = 16; cvs.height = 16;
@@ -806,9 +832,66 @@
         var accHue = (bgHue + 180) % 360;
         lyricsOverlay.style.setProperty("--k-accent", "hsl(" + accHue + ", 100%, 65%)");
       }
-    };
-    img.src = imgSrc;
+    }
   }
+
+  /* ---------- karaoke engine (karaoke.js) ---------- */
+  function emojiNode(key) {
+    var frag = document.createDocumentFragment();
+    var parts = (EMOJI_REGEX && key.match(EMOJI_REGEX)) || [key];
+    for (var i = 0; i < parts.length; i++) frag.appendChild(toAppleEmoji(parts[i]));
+    return frag;
+  }
+  var vk = null;
+  (function initVK() {
+    if (!window.ykVK || !karaokeStage) return;
+    vk = ykVK.create(karaokeStage, {
+      reduced: function () { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; },
+      iconKey: function (t) { return emojiFor(t); },
+      iconNode: emojiNode
+    });
+    var DEF = { lyric: "#ffffff", highlight: "#ff3d8b", secondary: "#d6906c" };
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem("vkSettings") || "{}"); } catch (e) {}
+    var st = { style: saved.style || "visual", colors: Object.assign({}, DEF, saved.colors) };
+    var bar = document.getElementById("vkSettings");
+    function paint() {
+      vk.setStyle(st.style); vk.setColors(st.colors);
+      if (bar) {
+        [].forEach.call(bar.querySelectorAll("[data-s]"), function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-s") === st.style ? "true" : "false"); });
+        [].forEach.call(bar.querySelectorAll("[data-c]"), function (i) { i.value = st.colors[i.getAttribute("data-c")]; });
+      }
+      try { localStorage.setItem("vkSettings", JSON.stringify(st)); } catch (e) {}
+    }
+    window.__vkSetStyle = function (name) { st.style = name; paint(); };
+    if (bar) {
+      bar.addEventListener("click", function (e) {
+        var b = e.target.closest("[data-s]");
+        if (b) { st.style = b.getAttribute("data-s"); paint(); }
+        if (e.target.closest("#vkReset")) { st = { style: "visual", colors: Object.assign({}, DEF) }; paint(); }
+      });
+      bar.addEventListener("input", function (e) {
+        var c = e.target.getAttribute && e.target.getAttribute("data-c");
+        if (c) { st.colors[c] = e.target.value; paint(); }
+      });
+    }
+    paint();
+  })();
+
+  /* ---------- headphones toggle ---------- */
+  var hpToggle = document.getElementById("hpToggle");
+  function paintHeadphones() {
+    if (!hpToggle) return;
+    hpToggle.classList.toggle("active", headphonesOn);
+    hpToggle.setAttribute("aria-pressed", headphonesOn ? "true" : "false");
+  }
+  function toggleHeadphones() {
+    headphonesOn = !headphonesOn;
+    try { localStorage.setItem("ykHeadphones", headphonesOn ? "1" : "0"); } catch (e) {}
+    paintHeadphones();
+  }
+  if (hpToggle) hpToggle.addEventListener("click", toggleHeadphones);
+  paintHeadphones();
 
   function updateKaraokeToggle(hasWords) {
     if (!hasWords) {
@@ -816,7 +899,7 @@
       toggleKaraokeMode(false);
     } else {
       karaokeToggle.classList.remove("disabled");
-      if (karaokeMode) toggleKaraokeMode(true);
+      if (karaokePref) toggleKaraokeMode(true);
     }
   }
 
@@ -827,7 +910,10 @@
       nextMode = false;
     }
     karaokeMode = nextMode;
-    try { localStorage.setItem("karaokeMode", karaokeMode); } catch(e) {}
+    if (!isBool) { /* only a real toggle (click / K key) is a preference */
+      karaokePref = karaokeMode;
+      try { localStorage.setItem("karaokeMode", karaokeMode); } catch(e) {}
+    }
     kSnapNext = true;
     karaokeToggle.classList.toggle("active", karaokeMode);
     lyricsOverlay.classList.toggle("karaoke-mode", karaokeMode);
@@ -838,6 +924,7 @@
       setLyricsPadding();
     } else {
       kActiveIdx = -1;
+      if (vk) { vk.resize(); kSnapNext = true; }
     }
     if (typeof updateSyncLabel !== "undefined") updateSyncLabel();
   }
@@ -855,68 +942,76 @@
       syncLabel.textContent = "✓";
       setTimeout(function() {
         syncBtn.classList.remove("done");
-        syncLabel.textContent = "Sync";
+        syncLabel.textContent = restingSyncLabel();
       }, 900);
     });
   }
   syncBtn.addEventListener("click", doSync);
-  syncBtn.addEventListener("wheel", function(e) {
-    e.preventDefault();
-    if (e.deltaY < 0) nudgeSync(50);
-    else if (e.deltaY > 0) nudgeSync(-50);
-  }, { passive: false });
+  /* no wheel handler on purpose: scrolling over this pill used to nudge the offset and save it, so
+     one trackpad swipe could put lyrics a second or more out of sync */
   document.getElementById("syncPlus").addEventListener("click", function() { nudgeSync(50); });
   document.getElementById("syncMinus").addEventListener("click", function() { nudgeSync(-50); });
-  
+
+  /* karaoke lead by word source: apple syllable timings are exact; the others carry the provider
+     bias this code has always applied. used whenever a track has no custom offset. */
+  function autoKLead(key) {
+    var entry = lyrStore.get(key || spState.key);
+    var src = entry ? String(entry.wordSource || "").toLowerCase() : "";
+    var prov = entry ? String(entry.calibProvider || entry.wordProvider || "").toLowerCase() : "";
+    if (src === "netease" || prov === "netease") return -400;
+    if (prov === "kugou" || src === "kugou") return -100;
+    if (src === "apple" || prov === "apple") return 0;
+    return 150;
+  }
+  /* resting label: "Sync" when on auto, the offset itself (tinted) when this track is nudged,
+     so a shifted song can never look normal */
+  function restingSyncLabel() {
+    var custom = karaokeMode ? kTrackHasCustomLead : lTrackHasCustomLead;
+    var v = userOffset();
+    syncBtn.classList.toggle("custom", custom);
+    syncBtn.title = custom ? "Offset for this song (hold to reset)" : "Resync (S)";
+    return custom ? (v >= 0 ? "+" : "") + v + "ms" : (karaokeMode ? "K Sync" : "Sync");
+  }
+  /* what the pill shows: your tweak on top of the automatic lead (+50 means "50ms earlier") */
+  function userOffset() { return karaokeMode ? kLeadMs - autoKLead() : lyrLeadMs; }
   var nudgeTimer = null;
-  function updateSyncLabel() {
-    var sl = document.getElementById("syncLabel");
-    if (!sl) return;
-    if (karaokeMode) {
-      sl.textContent = "K " + (kLeadMs >= 0 ? "+" : "") + kLeadMs + "ms";
-    } else {
-      sl.textContent = (lyrLeadMs >= 0 ? "+" : "") + lyrLeadMs + "ms";
-    }
+  function updateSyncLabel(flash) {
+    if (!syncLabel) return;
+    if (!flash) { if (nudgeTimer) clearTimeout(nudgeTimer); syncLabel.textContent = restingSyncLabel(); return; }
+    var v = userOffset();
+    syncLabel.textContent = (karaokeMode ? "K " : "") + (v >= 0 ? "+" : "") + v + "ms";
+    syncBtn.classList.toggle("custom", karaokeMode ? kTrackHasCustomLead : lTrackHasCustomLead);
     if (nudgeTimer) clearTimeout(nudgeTimer);
-    nudgeTimer = setTimeout(function() { sl.textContent = karaokeMode ? "K Sync" : "Sync"; }, 2500);
+    nudgeTimer = setTimeout(function () { syncLabel.textContent = restingSyncLabel(); }, 2500);
   }
 
+  /* +/- adjust THIS song only (saved per track; it no longer leaks into every other song) */
   function nudgeSync(delta) {
-    if (karaokeMode) {
-      kLeadMs += delta > 0 ? 25 : -25;
-      if (kLeadMs > 1000) kLeadMs = 1000;
-      if (kLeadMs < -1000) kLeadMs = -1000;
-      try {
-        localStorage.setItem("kLead:" + spState.key, kLeadMs);
-        if (!kTrackHasCustomLead) {
-          localStorage.setItem("kLeadMs", kLeadMs);
-        }
+    if (!spState.key) return;
+    try {
+      if (karaokeMode) {
+        kLeadMs = Math.max(-1000, Math.min(1000, kLeadMs + (delta > 0 ? 25 : -25)));
         kTrackHasCustomLead = true;
-      } catch(e) {}
-    } else {
-      lyrLeadMs += delta;
-      if (lyrLeadMs > 2000) lyrLeadMs = 2000;
-      if (lyrLeadMs < -2000) lyrLeadMs = -2000;
-      try {
-        localStorage.setItem("lyrLeadMs", lyrLeadMs);
-        if (spState.deviceId) localStorage.setItem("lyrLead:" + spState.deviceId, lyrLeadMs);
-      } catch(e) {}
-    }
-    updateSyncLabel();
+        localStorage.setItem("kLead:" + spState.key, kLeadMs);
+      } else {
+        lyrLeadMs = Math.max(-2000, Math.min(2000, lyrLeadMs + delta));
+        lTrackHasCustomLead = true;
+        localStorage.setItem("lLead:" + spState.key, lyrLeadMs);
+      }
+    } catch (e) {}
+    updateSyncLabel(true);
   }
-  
+  function resetLead() {
+    try {
+      if (karaokeMode) { localStorage.removeItem("kLead:" + spState.key); kLeadMs = autoKLead(); kTrackHasCustomLead = false; }
+      else { localStorage.removeItem("lLead:" + spState.key); lyrLeadMs = 0; lTrackHasCustomLead = false; }
+    } catch (e) {}
+    updateSyncLabel(true);
+  }
+
   var syncPressTimer = null;
   syncBtn.addEventListener("mousedown", function() {
-    if (!karaokeMode) return;
-    syncPressTimer = setTimeout(function() {
-      syncPressTimer = null;
-      try {
-        localStorage.removeItem("kLead:" + spState.key);
-        kLeadMs = parseInt(localStorage.getItem("kLeadMs"), 10) || 0;
-        kTrackHasCustomLead = false;
-        updateSyncLabel();
-      } catch(e) {}
-    }, 600);
+    syncPressTimer = setTimeout(function() { syncPressTimer = null; resetLead(); }, 600);
   });
   syncBtn.addEventListener("mouseup", function() {
     if (syncPressTimer) { clearTimeout(syncPressTimer); syncPressTimer = null; }
@@ -925,16 +1020,7 @@
     if (syncPressTimer) { clearTimeout(syncPressTimer); syncPressTimer = null; }
   });
   syncBtn.addEventListener("touchstart", function() {
-    if (!karaokeMode) return;
-    syncPressTimer = setTimeout(function() {
-      syncPressTimer = null;
-      try {
-        localStorage.removeItem("kLead:" + spState.key);
-        kLeadMs = parseInt(localStorage.getItem("kLeadMs"), 10) || 0;
-        kTrackHasCustomLead = false;
-        updateSyncLabel();
-      } catch(e) {}
-    }, 600);
+    syncPressTimer = setTimeout(function() { syncPressTimer = null; resetLead(); }, 600);
   }, {passive: true});
   syncBtn.addEventListener("touchend", function() {
     if (syncPressTimer) { clearTimeout(syncPressTimer); syncPressTimer = null; }
@@ -992,7 +1078,6 @@
       });
     });
 
-    if (kTapeCol) kTapeCol.innerHTML = "";
     var seenSongEmojis = {};
     karaokeWordList.forEach(function(kw) {
       var se = emojiFor(kw.text);
@@ -1004,54 +1089,7 @@
         }
       }
     });
-    var kFrag2 = document.createDocumentFragment();
-    var seed = 42;
-    var kPrev = [], kCurr = [], kLastLine = -1;
-    karaokeWordList.forEach(function(word, idx) {
-       if (word.lineIdx !== kLastLine) {
-         kPrev = kCurr;
-         kCurr = [];
-         kLastLine = word.lineIdx;
-       }
-       var div = document.createElement("div");
-       div.className = "k-tape-word";
-       div.textContent = word.text;
-       var e = emojiFor(word.text);
-       if (e && kCurr.length < 2 && kCurr.indexOf(e) === -1 && kPrev.indexOf(e) === -1) {
-         kCurr.push(e);
-         var emo = document.createElement("span");
-         emo.className = "emo";
-         var eMatches = (EMOJI_REGEX && e.match(EMOJI_REGEX)) || [e];
-         for (var emi = 0; emi < eMatches.length; emi++) {
-           emo.appendChild(toAppleEmoji(eMatches[emi]));
-         }
-         div.appendChild(emo);
-       }
-       seed = (seed * 9301 + 49297) % 233280; var rand1 = seed / 233280;
-       seed = (seed * 9301 + 49297) % 233280; var rand2 = seed / 233280;
-       var rot = -3 + rand1 * 6;
-       div.style.setProperty("--rot", rot + "deg");
-       if (rand2 < 0.16) div.classList.add("font-bubbly");
-       
-       var tl_x = rand1 * 4, tl_y = rand2 * 4;
-       seed = (seed * 9301 + 49297) % 233280; var r3 = seed / 233280;
-       seed = (seed * 9301 + 49297) % 233280; var r4 = seed / 233280;
-       var tr_x = 100 - r3 * 4, tr_y = r4 * 4;
-       seed = (seed * 9301 + 49297) % 233280; var r5 = seed / 233280;
-       seed = (seed * 9301 + 49297) % 233280; var r6 = seed / 233280;
-       var br_x = 100 - r5 * 4, br_y = 100 - r6 * 4;
-       seed = (seed * 9301 + 49297) % 233280; var r7 = seed / 233280;
-       seed = (seed * 9301 + 49297) % 233280; var r8 = seed / 233280;
-       var bl_x = r7 * 4, bl_y = 100 - r8 * 4;
-       var clip = "polygon(" + tl_x + "% " + tl_y + "%, " + tr_x + "% " + tr_y + "%, " + br_x + "% " + br_y + "%, " + bl_x + "% " + bl_y + "%)";
-       div.style.setProperty("--clip", clip);
-       word.el = div;
-       kFrag2.appendChild(div);
-    });
-    if (kTapeCol) {
-      kTapeCol.appendChild(kFrag2);
-      kTapeCol.style.transform = "translateY(0px)";
-    }
+    if (vk) { vk.setWords(karaokeWordList); kSnapNext = true; }
 
     updateKaraokeToggle(anyHasWords);
     setLyricsPadding();
@@ -1086,87 +1124,100 @@
     var entry = lyrStore.get(key);
     if (!entry) return;
     lyrActiveIdx = -1; kActiveIdx = -1;
-    // Apply provider defaults on cache-hit too (if user hasn't customized).
-    if (!kTrackHasCustomLead && entry.wordSource) {
-      kLeadMs = providerDefaultLead(entry.wordSource, entry.wordProvider, true);
-    }
-    try {
-      var _devCustom = spState.deviceId ? localStorage.getItem("lyrLead:" + spState.deviceId) : null;
-      if (_devCustom === null && entry.lineSource) {
-        lyrLeadMs = providerDefaultLead(entry.lineSource, null, false);
-      }
-    } catch (e) {}
+    if (!kTrackHasCustomLead) kLeadMs = autoKLead(key);
     if (entry.lines) renderSynced(entry.lines, entry.wordLines, durationMs);
     else if (entry.plain) renderPlain(entry.plain);
     else renderNoLyrics();
   }
 
-  var lyrLastQuery = null;
   function fetchLyrics(title, artist, durationMs, force) {
     var key = spState.key;
     if (!key) return;
     if (!force && (lyrStore.has(key) || lyrInflight[key])) return;
     lyrInflight[key] = true;
-    lyrLastQuery = { title: title, artist: artist, durationMs: durationMs, retried: false };
     lyrActiveIdx = -1; kActiveIdx = -1; lyrRenderedKey = null;
     lyricsLines.innerHTML = "";
-    if (kTapeCol) kTapeCol.innerHTML = "";
+    if (vk) vk.clear();
     lyricsHint.textContent = "finding lyrics…";
     lyricsHint.style.cursor = "";
     lyricsHint.onclick = null;
     var base = "api/lyrics?artist=" + encodeURIComponent((artist || "").split(",")[0]) +
       "&title=" + encodeURIComponent(title) +
-      "&duration=" + Math.round((durationMs || 0) / 1000) + "&v=4";
-      
-    Promise.all([
-      fetch(base + "&mode=line").then(function(r) { return r.ok ? r.json() : null; }),
-      fetch(base + "&mode=word").then(function(r) { return r.ok ? r.json() : null; })
-    ]).then(function(results) {
+      "&duration=" + Math.round((durationMs || 0) / 1000) +
+      (spState.isrc ? "&isrc=" + encodeURIComponent(spState.isrc) : "") + "&v=6";
+
+    /* never swallow a non-ok response: a 429 must reach the rate-limit path, and a 5xx / network
+       failure must NOT be cached as "this song has no lyrics". */
+    function getJson(url) {
+      return fetch(url).then(function (r) {
+        if (r.status === 429) return { rateLimited: true };
+        if (!r.ok) return { failed: true };
+        return r.json();
+      }).catch(function () { return { failed: true }; });
+    }
+    Promise.all([getJson(base + "&mode=line"), getJson(base + "&mode=word")]).then(function(results) {
       delete lyrInflight[key];
       var dLine = results[0], dWord = results[1];
-      if (dLine && dLine.error && dLine.error === "rate-limited") { var e = new Error("rate-limited"); e.rate = true; throw e; }
-      
-      var entry = { empty: true };
+      if ((dLine && dLine.rateLimited) || (dWord && dWord.rateLimited)) { var e = new Error("rate-limited"); e.rate = true; throw e; }
+      if (dLine && dLine.failed && dWord && dWord.failed) throw new Error("lyrics upstream failed");
+      if (dLine && dLine.failed) dLine = null;
+      var wordFailed = !!(dWord && dWord.failed);
+      if (wordFailed) dWord = null;
+
+      var entry = { empty: true, wordFailed: wordFailed };
       if (dLine && dLine.lines && dLine.lines.length) {
         entry.lines = dLine.lines;
       } else if (dLine && dLine.plain) {
         entry.plain = dLine.plain;
       }
-      
+      if (dLine && dLine.source) entry.lineSource = dLine.source;
       if (dWord && dWord.lines && dWord.lines.length && dWord.wordSync) {
         entry.wordLines = dWord.lines;
-      }
-      // Record provider sources for default-offset lookup.
-      // Line view uses the line-mode winner; karaoke uses the word-mode winner.
-      if (dLine && dLine.source) entry.lineSource = dLine.source;
-      if (dWord && dWord.source) {
         entry.wordSource = dWord.source;
         if (dWord.provider) entry.wordProvider = dWord.provider;
+        entry.calibProvider = dWord.calib ? dWord.calib.provider : null;
         if (dWord.calib) entry.calib = dWord.calib;
       }
 
-      // Apply provider-specific default offsets (unless the user customized).
-      // Karaoke: track-level custom wins; otherwise provider default.
-      if (!kTrackHasCustomLead) {
-        kLeadMs = providerDefaultLead(entry.wordSource, entry.wordProvider, true);
-      }
-      // Line mode: device-level custom wins; otherwise provider default.
-      // (Device custom is checked in renderSpotify; here we set the fallback.)
-      try {
-        var _devCustom = spState.deviceId ? localStorage.getItem("lyrLead:" + spState.deviceId) : null;
-        if (_devCustom === null) {
-          lyrLeadMs = providerDefaultLead(entry.lineSource, null, false);
-        }
-      } catch (e) {}
-
       lyrPut(key, entry);
+      delete lyrTries[key]; delete lyrFailUntil[key];
+      /* the line request worked but the word request blew up: try the word timings once more in the
+         background so karaoke can still switch on, instead of staying line-only forever */
+      if (entry.wordFailed && entry.lines) {
+        setTimeout(function () {
+          getJson(base + "&mode=word").then(function (dw) {
+            if (dw && dw.lines && dw.lines.length && dw.wordSync) {
+              entry.wordLines = dw.lines;
+              entry.wordSource = dw.source;
+              if (dw.provider) entry.wordProvider = dw.provider;
+              entry.calibProvider = dw.calib ? dw.calib.provider : null;
+              entry.wordFailed = false;
+              if (spState.key === key && lyricsOverlay.classList.contains("open")) { lyrRenderedKey = null; }
+            }
+          });
+        }, 4000);
+      }
+
+      /* the source is only known now: apply its auto lead (the track-change rule ran before the
+         lyrics existed, which is how apple-timed lines ended up shown early) */
+      if (spState.key === key) {
+        if (!kTrackHasCustomLead) kLeadMs = autoKLead(key);
+        if (!lTrackHasCustomLead) lyrLeadMs = 0;
+        if (typeof updateSyncLabel !== "undefined") updateSyncLabel();
+      }
+
       if (spState.key === key && lyricsOverlay.classList.contains("open"))
         renderLyrEntry(key, durationMs);
     }).catch(function (err) {
       delete lyrInflight[key];
-      var lq = lyrLastQuery;
-      if (!err.rate && lq && !lq.retried && lyricsOverlay.classList.contains("open")) {
-        lq.retried = true;
+      /* cooldown: lyrTick auto-fetches whenever a track has no entry, so without this a failed
+         request was re-issued on the very next frame (hammering the api, and "tap to retry" could
+         never stay on screen). the retry counter is per track, so the automatic retry really
+         happens once instead of looping every 2.5s forever. */
+      var tries = lyrTries[key] || 0;
+      if (!err.rate && tries < 1 && lyricsOverlay.classList.contains("open")) {
+        lyrTries[key] = tries + 1;
+        lyrFailUntil[key] = Date.now() + 3500;
         lyricsHint.textContent = "retrying…";
         setTimeout(function () {
           if (lyricsOverlay.classList.contains("open") && spState.key === key && !lyrStore.has(key))
@@ -1174,12 +1225,14 @@
         }, 2500);
         return;
       }
+      lyrFailUntil[key] = Infinity; /* stay failed until the user taps */
       lyricsLines.innerHTML = "";
       lyricsHint.textContent = err.rate ? "too many requests — tap to retry" : "couldn't load lyrics — tap to retry";
       lyricsHint.style.cursor = "pointer";
       lyricsHint.onclick = function () {
         lyricsHint.style.cursor = "";
         lyricsHint.onclick = null;
+        delete lyrFailUntil[key]; delete lyrTries[key];
         fetchLyrics(title, artist, durationMs, true);
       };
     });
@@ -1258,7 +1311,7 @@
     var key = spState.key;
     if (!key) return;
     if (!lyrStore.has(key)) {
-      if (!lyrInflight[key]) {
+      if (!lyrInflight[key] && !(lyrFailUntil[key] > Date.now())) {
         setLyricsHeader();
         fetchLyrics(spState.title, spState.artist, spState.durationMs);
       }
@@ -1275,7 +1328,7 @@
       return;
     }
 
-    var pos = lyrPos() + (karaokeMode ? kLeadMs : lyrLeadMs);
+    var pos = lyrPos() + (karaokeMode ? kLeadMs : lyrLeadMs) + (headphonesOn ? HEADPHONES_MS : 0);
     var entry = lyrStore.get(key);
 
     if (Math.abs(lyrPos() - kLastLyrPos) > 1500) kSnapNext = true;
@@ -1295,55 +1348,8 @@
         dbg.textContent = "[karaoke] p=" + entry.calib.provider + " r=" + entry.calib.ref + " off=" + entry.calib.offsetMs + " mad=" + entry.calib.mad + " conf=" + entry.calib.confidence + " lead=" + kLeadMs;
       }
     
-      var kidx = findKaraokeIndex(pos, kActiveIdx);
-      if (kidx !== kActiveIdx) {
-        if (kActiveIdx >= 0 && karaokeWordList[kActiveIdx] && karaokeWordList[kActiveIdx].el) {
-          karaokeWordList[kActiveIdx].el.classList.remove("active", "k-rest");
-        }
-        kActiveIdx = kidx;
-        if (kidx >= 0 && karaokeWordList[kidx] && karaokeWordList[kidx].el) {
-          var word = karaokeWordList[kidx];
-          if (karaokeStage && kTapeCol) {
-            var wW = word.el.scrollWidth;
-            var maxW = window.innerWidth * 0.9;
-            if (wW > maxW) {
-              word.el.style.setProperty("--scale", (maxW / wW));
-            } else {
-              word.el.style.setProperty("--scale", "1");
-            }
-          }
-        }
-      }
-      
-      if (kidx >= 0 && karaokeWordList[kidx] && karaokeWordList[kidx].el) {
-         var cw = karaokeWordList[kidx];
-         var nw = karaokeWordList[kidx + 1];
-         var nStart = nw ? nw.start : Infinity;
-         var inGap = pos >= cw.end + 120 && (nStart - cw.end) > 400;
-         cw.el.classList.toggle("active", !inGap);
-         cw.el.classList.toggle("k-rest", inGap);
-      }
-      
-      if (karaokeStage && kTapeCol) {
-         var lookPos = pos + 60;
-         var lookIdx = findKaraokeIndex(lookPos, kActiveIdx);
-         if (lookIdx >= 0 && karaokeWordList[lookIdx] && karaokeWordList[lookIdx].el) {
-             var tgtWord = karaokeWordList[lookIdx];
-             var targetY = tgtWord.el.offsetTop + tgtWord.el.offsetHeight / 2 - karaokeStage.offsetHeight / 2;
-             
-             if (Math.abs(targetY - kCamY) > 1.5 * karaokeStage.offsetHeight) kSnapNext = true;
-             if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) kSnapNext = true;
-             
-             if (kSnapNext) {
-               kCamY = targetY;
-               kSnapNext = false;
-             } else {
-               kCamY += (targetY - kCamY) * (1 - Math.exp(-dt / 45));
-             }
-             kTapeCol.style.transform = "translate3d(0, " + (-kCamY) + "px, 0)";
-         }
-      }
-
+      if (vk) { vk.update(pos, dt, kSnapNext); kSnapNext = false; }
+      kActiveIdx = findKaraokeIndex(pos, kActiveIdx);
     } else if (karaokeMode && karaokeWordList.length === 0) {
       toggleKaraokeMode(false);
     } else if (!karaokeMode && entry.lines) {
@@ -1409,7 +1415,6 @@
     })();
   }
   startSyncLoop();
-  var karaokeFontsLoaded = false;
   function logout() {
     window.location.href = "api/auth/logout";
   }
@@ -1420,6 +1425,8 @@
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if ((e.key === "k" || e.key === "K") && lyricsOverlay.classList.contains("open")) toggleKaraokeMode();
     if ((e.key === "s" || e.key === "S") && lyricsOverlay.classList.contains("open")) doSync();
+    if ((e.key === "h" || e.key === "H") && lyricsOverlay.classList.contains("open")) toggleHeadphones();
+    if (karaokeMode && lyricsOverlay.classList.contains("open") && window.ykVK && window.__vkSetStyle && e.key >= "1" && e.key <= "4") window.__vkSetStyle(ykVK.STYLES[+e.key - 1]);
     if ((e.key === "d" || e.key === "D") && lyricsOverlay.classList.contains("open")) {
        var dbg = document.getElementById("kDebugLabel");
        if (dbg) dbg.style.display = dbg.style.display === "none" ? "block" : "none";
@@ -1527,6 +1534,7 @@
     lyricsClassicView.style.display = karaokeMode ? "none" : "";
     lyricsKaraokeView.style.display = karaokeMode ? "flex" : "none";
     updatePlaybackVisibility();
+    paintHeadphones();
     resetKIdle();
     pollSpotify(true);
   }

@@ -13,12 +13,63 @@ export function ttmlTime(str) {
   return Math.round(ms);
 }
 
-function decodeEnt(str) {
-  return str.replace(/&amp;/g, "&")
-            .replace(/&apos;/g, "'")
-            .replace(/&quot;/g, '"')
-            .replace(/&lt;/g, "<")
-            .replace(/&gt;/g, ">");
+// single pass, so "&amp;lt;" correctly becomes "&lt;" (not "<"); handles numeric entities too
+const NAMED = { amp: "&", apos: "'", quot: '"', lt: "<", gt: ">", nbsp: " " };
+export function decodeEnt(str) {
+  return String(str).replace(/&(#x[0-9a-f]+|#\d+|amp|apos|quot|lt|gt|nbsp);/gi, (m, e) => {
+    if (e[0] === "#") {
+      const cp = e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+      try { return String.fromCodePoint(cp); } catch { return m; }
+    }
+    return NAMED[e.toLowerCase()];
+  });
+}
+
+const ROLE_RE = /ttm:role\s*=\s*"(x-translation|x-roman|x-bg)"/i;
+
+// Remove every role span (translation / romanisation / background vocals) *including
+// nested children* by tracking <span> depth. A lazy regex stops at the first </span>
+// and leaks the rest of a multi-word background vocal into the main line.
+export function splitRoleSpans(inner) {
+  const tag = /<span\b[^>]*>|<\/span\s*>/gi;
+  let out = "";
+  let last = 0;
+  let skipDepth = 0;     // >0 while inside a role span
+  let skipStart = 0;
+  let skipRole = null;
+  let translation = null;
+  let m;
+  while ((m = tag.exec(inner))) {
+    const t = m[0];
+    const closing = t[1] === "/";
+    if (skipDepth === 0) {
+      if (!closing && ROLE_RE.test(t) && !/\/\s*>$/.test(t)) {
+        out += inner.slice(last, m.index);
+        skipDepth = 1;
+        skipStart = tag.lastIndex;
+        skipRole = ROLE_RE.exec(t)[1].toLowerCase();
+      }
+    } else if (closing) {
+      skipDepth--;
+      if (skipDepth === 0) {
+        if (skipRole === "x-translation" && translation == null) {
+          translation = decodeEnt(inner.slice(skipStart, m.index).replace(/<[^>]+>/g, "").trim());
+        }
+        last = tag.lastIndex;
+        skipRole = null;
+      }
+    } else if (!/\/\s*>$/.test(t)) {
+      skipDepth++;
+    }
+  }
+  if (skipDepth === 0) out += inner.slice(last);
+  else out += ""; // unbalanced role span: drop the tail rather than leak it
+  return { clean: out, translation };
+}
+
+function attr(attrs, name) {
+  const m = new RegExp("(?:^|\\s)" + name + "\\s*=\\s*\"([^\"]*)\"", "i").exec(attrs);
+  return m ? m[1] : null;
 }
 
 export function parseAppleTTML(xml, mode = "word") {
@@ -26,121 +77,92 @@ export function parseAppleTTML(xml, mode = "word") {
   if (mode === "word" && !xml.includes('itunes:timing="Word"')) return null;
 
   const lines = [];
-  const pRegex = /<p\s+[^>]*begin="([^"]+)"[^>]*>([\s\S]*?)<\/p>/gi;
+  const pRegex = /<p\b([^>]*)>([\s\S]*?)<\/p>/gi;
   let pMatch;
-  
+
   while ((pMatch = pRegex.exec(xml))) {
-    const pBegin = ttmlTime(pMatch[1]);
-    let inner = pMatch[2];
+    const beginStr = attr(pMatch[1], "begin");
+    if (beginStr == null) continue;
+    const pBegin = ttmlTime(beginStr);
+    const { clean: inner, translation } = splitRoleSpans(pMatch[2]);
 
-    let translation = null;
-    const transMatch = inner.match(/<span[^>]*ttm:role="x-translation"[^>]*>([\s\S]*?)<\/span>/i);
-    if (transMatch) {
-       translation = decodeEnt(transMatch[1].replace(/<[^>]+>/g, "").trim());
-    }
-
-    inner = inner.replace(/<span[^>]*(?:ttm:role="x-translation"|ttm:role="x-roman"|ttm:role="x-bg")[^>]*>[\s\S]*?<\/span>/gi, "");
-    
     if (mode === "line") {
-       const text = decodeEnt(inner.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim());
-       if (text) {
-          const lObj = { time: pBegin, text, words: null };
-          if (translation) lObj.translation = translation;
-          lines.push(lObj);
-       }
-       continue;
+      const text = decodeEnt(inner.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim());
+      if (text) {
+        const lObj = { time: pBegin, text, words: null };
+        if (translation) lObj.translation = translation;
+        lines.push(lObj);
+      }
+      continue;
     }
 
+    // chunks: timed spans and the loose text between them (spaces live there)
     const chunks = [];
-    const spanRegex = /<span\s+[^>]*begin="([^"]+)"\s+[^>]*end="([^"]+)"[^>]*>([\s\S]*?)<\/span>/gi;
-    
+    const spanRegex = /<span\b([^>]*)>([\s\S]*?)<\/span>/gi;
     let lastIndex = 0;
     let sMatch;
     let hasSpans = false;
-    
+
     while ((sMatch = spanRegex.exec(inner))) {
-      hasSpans = true;
+      const b = attr(sMatch[1], "begin"), e = attr(sMatch[1], "end");
       const textBefore = inner.substring(lastIndex, sMatch.index);
       if (textBefore) chunks.push({ text: textBefore, timed: false });
-      
-      chunks.push({
-        text: sMatch[3],
-        start: ttmlTime(sMatch[1]),
-        end: ttmlTime(sMatch[2]),
-        timed: true
-      });
       lastIndex = spanRegex.lastIndex;
+      if (b == null) { chunks.push({ text: sMatch[2], timed: false }); continue; }
+      hasSpans = true;
+      const start = ttmlTime(b);
+      chunks.push({ text: sMatch[2], start, end: e != null ? ttmlTime(e) : start, timed: true });
     }
     const textAfter = inner.substring(lastIndex);
     if (textAfter) chunks.push({ text: textAfter, timed: false });
 
     if (!hasSpans) {
-       // if a line somehow has no timed spans but the document is Word-timed
-       const txt = decodeEnt(inner.replace(/<[^>]+>/g, "").trim());
-       if (txt) {
-         lines.push({ time: pBegin, text: txt, words: null, ends: null });
-       }
-       continue;
+      // a line with no timed spans inside a Word-timed document
+      const txt = decodeEnt(inner.replace(/<[^>]+>/g, "").trim());
+      if (txt) lines.push({ time: pBegin, text: txt, words: null, ends: null });
+      continue;
     }
 
     const words = [];
     let currentWord = null;
-
     const commitWord = () => {
       if (currentWord && currentWord.text.trim()) {
-        words.push({
-          text: decodeEnt(currentWord.text.trim()),
-          start: currentWord.start,
-          end: currentWord.end
-        });
+        words.push({ text: decodeEnt(currentWord.text.trim()), start: currentWord.start, end: currentWord.end });
       }
       currentWord = null;
     };
 
     for (const chunk of chunks) {
+      const txt = chunk.text.replace(/<[^>]+>/g, "");
       if (!chunk.timed) {
-        const txt = chunk.text.replace(/<[^>]+>/g, "");
-        if (txt.match(/^\s+/)) commitWord();
-        if (currentWord) {
-          currentWord.text += txt;
-        }
-        if (txt.match(/\s+$/)) commitWord();
+        if (/^\s+/.test(txt)) commitWord();
+        if (currentWord) currentWord.text += txt;
+        if (/\s+$/.test(txt)) commitWord();
       } else {
-        const txt = chunk.text;
-        if (txt.match(/^\s+/)) commitWord();
-        
+        if (/^\s+/.test(txt)) commitWord();
         if (currentWord) {
           currentWord.text += txt;
           currentWord.end = Math.max(currentWord.end, chunk.end);
         } else {
           currentWord = { text: txt, start: chunk.start, end: chunk.end };
         }
-        
-        if (txt.match(/\s+$/)) commitWord();
+        if (/\s+$/.test(txt)) commitWord();
       }
     }
     commitWord();
 
     if (!words.length) continue;
 
-    const text = words.map(w => w.text).join(" ");
-    const starts = words.map(w => w.start);
-    const ends = words.map(w => w.end);
-
+    const text = words.map((w) => w.text).join(" ");
+    const starts = words.map((w) => w.start);
+    const ends = words.map((w) => w.end);
     for (let i = 0; i < ends.length; i++) {
       if (ends[i] == null || ends[i] <= starts[i]) {
         ends[i] = i < ends.length - 1 ? starts[i + 1] : starts[i] + 300;
       }
     }
-
-    lines.push({
-      time: pBegin,
-      text,
-      words: starts,
-      ends: ends
-    });
+    lines.push({ time: pBegin, text, words: starts, ends });
   }
-  
-  if (lines.length === 0) return [];
+
   return lines;
 }

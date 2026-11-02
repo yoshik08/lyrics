@@ -5,8 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>lyrics — yoshik</title>
 <meta name="description" content="synced lyrics + karaoke for whatever you're playing on spotify">
+<link rel="preload" href="assets/fonts/Bricolage-wdth.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="style.css">
-<link rel="stylesheet" href="karaoke-fonts.css">
+<link rel="stylesheet" href="karaoke.css">
 </head>
 <body>
 
@@ -33,6 +34,7 @@
       <button class="sync-btn" id="syncBtn" data-hover aria-label="resync lyrics" title="Resync (S)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg><span id="syncLabel">Sync</span></button>
       <button class="sync-nudge" id="syncPlus" data-hover aria-label="lyrics earlier by 50ms" title="Lyrics earlier (+50ms)">+</button>
     </div>
+    <button class="karaoke-toggle hp-toggle" id="hpToggle" data-hover aria-pressed="false" title="Bluetooth headphones: show lyrics 225ms later to match the audio delay (H)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg><span>Headphones</span></button>
     <button class="karaoke-toggle" id="karaokeToggle" data-hover aria-label="toggle karaoke mode" title="Karaoke Mode (K)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg> Karaoke</button>
     <button class="lyrics-close" id="lyricsClose" data-hover aria-label="log out" title="Log out"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></button>
   </div>
@@ -56,22 +58,30 @@
     <div class="lyrics-lines" id="lyricsLines"></div>
   </div>
 
-  <!-- karaoke view -->
+  <!-- karaoke view: per-word, verci-style (karaoke.js) -->
   <div class="lyrics-karaoke" id="lyricsKaraokeView" style="display: none;">
-    <div class="k-top">
-      <img class="k-top-cover" id="kTopCover" alt="">
-      <div class="k-top-title" id="kTopTitle"></div>
-      <div class="k-top-artist" id="kTopArtist"></div>
-      <div class="k-top-prog"><i id="kTopProg"></i></div>
-      <div class="playback-controls k-pb" id="playbackControlsK" hidden>
-        <button class="pb-btn" id="pbPrevK" data-hover aria-label="previous track" title="Previous"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4h2v16H6zM20 4v16L9 12z"/></svg></button>
-        <button class="pb-btn pb-play" id="pbPlayK" data-hover aria-label="play or pause" title="Play/Pause"><svg class="ic-play" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg><svg class="ic-pause" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="display:none"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg></button>
-        <button class="pb-btn" id="pbNextK" data-hover aria-label="next track" title="Next"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 4h2v16h-2zM4 4v16l11-8z"/></svg></button>
-        <span class="pb-time" id="pbTimeK">0:00 / 0:00</span>
-      </div>
+    <div class="vk" id="karaokeStage" data-style="visual"><div class="vk-glow"></div><div class="vk-world" id="vkWorld"></div></div>
+    <div class="vk-meta"><img id="kTopCover" alt=""><div><b id="kTopTitle"></b><span id="kTopArtist"></span></div></div>
+    <div class="playback-controls vk-pb" id="playbackControlsK" hidden>
+      <button class="pb-btn" id="pbPrevK" data-hover aria-label="previous track" title="Previous"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4h2v16H6zM20 4v16L9 12z"/></svg></button>
+      <button class="pb-btn pb-play" id="pbPlayK" data-hover aria-label="play or pause" title="Play/Pause"><svg class="ic-play" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg><svg class="ic-pause" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="display:none"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg></button>
+      <button class="pb-btn" id="pbNextK" data-hover aria-label="next track" title="Next"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 4h2v16h-2zM4 4v16l11-8z"/></svg></button>
+      <span class="pb-time" id="pbTimeK">0:00 / 0:00</span>
     </div>
-    <div class="k-tape-stage" id="karaokeStage">
-      <div class="k-tape-col" id="kTapeCol"></div>
+    <div class="vk-prog"><i id="kTopProg"></i></div>
+    <div class="vk-settings" id="vkSettings">
+      <div class="vk-seg" role="group" aria-label="karaoke style">
+        <button data-s="ship" aria-pressed="false">Ship</button>
+        <button data-s="fisheye" aria-pressed="false">Fisheye</button>
+        <button data-s="fisheye-visual" aria-pressed="false">Fisheye Visual</button>
+        <button data-s="visual" aria-pressed="true">Visual</button>
+      </div>
+      <div class="vk-colors">
+        <label><input type="color" data-c="lyric" value="#ffffff" aria-label="lyric colour"><span>lyric</span></label>
+        <label><input type="color" data-c="highlight" value="#ff3d8b" aria-label="highlight colour"><span>highlight</span></label>
+        <label><input type="color" data-c="secondary" value="#d6906c" aria-label="secondary colour"><span>secondary</span></label>
+      </div>
+      <button class="vk-reset" id="vkReset" type="button">reset</button>
     </div>
   </div>
 
@@ -79,6 +89,7 @@
 </div>
 
 <div class="cursor-dot" id="cursorDot" aria-hidden="true"></div>
+<script src="karaoke.js"></script>
 <script src="script.js"></script>
 </body>
 </html>

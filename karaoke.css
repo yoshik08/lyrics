@@ -1,0 +1,75 @@
+/* karaoke.css — styles for karaoke.js (Verci-style per-word lyrics) */
+.vk {
+  --lyric: #ffffff; --highlight: #ff3d8b; --secondary: #d6906c;
+  position: absolute; inset: 0; overflow: hidden;
+  perspective: 1200px; perspective-origin: 50% 46%;
+  background: #050507; color: var(--lyric);
+  font-family: "Bricolage Grotesque", "Hanken Grotesk", system-ui, sans-serif;
+  user-select: none; -webkit-user-select: none;
+}
+.vk-glow {
+  position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(44% 38% at 50% 48%, color-mix(in srgb, var(--highlight) 26%, transparent), transparent 74%),
+    radial-gradient(120% 90% at 50% 50%, transparent 55%, rgba(0, 0, 0, .55));
+}
+.vk-world { position: absolute; inset: 0; transform-style: preserve-3d; will-change: transform; }
+.vk-w {
+  position: absolute; left: 50%; top: 50%;
+  font-size: var(--vk-fs, 96px); font-weight: 780; font-variation-settings: "wdth" 86;
+  letter-spacing: -.05em; line-height: 1; white-space: nowrap;
+  padding: .1em .28em .14em; transform-origin: 50% 55%;
+  will-change: transform, opacity, filter;
+}
+.vk-t { position: relative; z-index: 1; transition: color .16s ease; }
+.vk-w.s-up .vk-t { color: color-mix(in srgb, var(--lyric) 36%, transparent); }
+.vk-w.s-on .vk-t { color: #fff; transition: none; } /* lights up instantly: a fade reads as late */
+.vk-w.s-past .vk-t { color: var(--secondary); }
+.vk-hl {
+  position: absolute; inset: .03em .05em .05em; border-radius: .22em;
+  background: var(--highlight); opacity: 0; transform-origin: 28% 60%;
+}
+.vk-ic {
+  position: absolute; top: 50%; width: .82em; height: .82em; margin-top: -.41em;
+  color: var(--highlight); opacity: 0; z-index: 2; pointer-events: none;
+}
+.vk-ic.r { left: 100%; margin-left: -.1em; }
+.vk-ic.l { right: 100%; margin-right: -.1em; }
+.vk-ic svg, .vk-ic img { display: block; width: 100%; height: 100%; }
+.vk-ic .ios-emo { width: 100%; height: 100%; vertical-align: top; }
+
+/* settings bar: style + palette */
+.vk-settings {
+  position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 30;
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: center;
+  padding: 8px 10px; max-width: calc(100% - 24px);
+  background: rgba(20, 20, 24, .72); border: 1px solid rgba(255, 255, 255, .1); border-radius: 18px;
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  font: 500 12px/1 "JetBrains Mono", ui-monospace, monospace; color: rgba(255, 255, 255, .7);
+  transition: opacity .35s ease, transform .35s ease;
+}
+.vk-seg { display: flex; gap: 2px; padding: 3px; background: rgba(255, 255, 255, .06); border-radius: 12px; }
+.vk-seg button {
+  padding: 8px 12px; border-radius: 9px; color: inherit; font: inherit; letter-spacing: .02em; cursor: pointer;
+  background: transparent; border: 0; transition: background .2s ease, color .2s ease;
+}
+.vk-seg button:hover { color: #fff; }
+.vk-seg button[aria-pressed="true"] { background: #fff; color: #08080a; }
+.vk-colors { display: flex; align-items: center; gap: 12px; }
+.vk-colors label { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+.vk-colors input[type="color"] {
+  -webkit-appearance: none; appearance: none; width: 22px; height: 22px; padding: 0; border: 2px solid rgba(255, 255, 255, .28);
+  border-radius: 50%; background: none; cursor: pointer; overflow: hidden;
+}
+.vk-colors input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.vk-colors input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 50%; }
+.vk-colors input[type="color"]::-moz-color-swatch { border: 0; border-radius: 50%; }
+.vk-reset { padding: 8px 10px; border-radius: 9px; background: transparent; border: 0; color: inherit; font: inherit; cursor: pointer; }
+.vk-reset:hover { color: #fff; }
+
+@media (max-width: 640px) {
+  .vk-settings { gap: 8px; bottom: 14px; }
+  .vk-seg button { padding: 8px 9px; font-size: 11px; }
+  .vk-colors span { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .vk-w, .vk-t { transition: none; } }

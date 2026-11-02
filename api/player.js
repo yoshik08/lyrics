@@ -5,6 +5,10 @@
 // 401 when there is no usable session.
 import { getSession, clearSessionCookie } from "./_session.js";
 
+// ISRC per track id (apple lyrics are looked up by ISRC; the player item only carries it for some
+// responses). tiny in-memory cache per warm function instance.
+const isrcCache = new Map();
+
 export default async function handler(req, res) {
   const tStart = performance.now();
   res.setHeader("Cache-Control", "no-store");
@@ -18,7 +22,19 @@ export default async function handler(req, res) {
   if (!sess) return res.status(401).json({ error: "not_logged_in" });
 
   const auth = { Authorization: `Bearer ${sess.access_token}` };
-  const pick = (t, outer) => ({
+  const pick = async (t, outer) => {
+    let isrc = (t.external_ids && t.external_ids.isrc) || null;
+    if (!isrc && t.id) {
+      if (isrcCache.has(t.id)) isrc = isrcCache.get(t.id);
+      else {
+        try {
+          const tr = await fetch("https://api.spotify.com/v1/tracks/" + t.id, { headers: auth, cache: "no-store" });
+          if (tr.ok) { const td = await tr.json(); if (td.external_ids && td.external_ids.isrc) isrc = td.external_ids.isrc; }
+        } catch {}
+        if (isrc) { if (isrcCache.size > 500) isrcCache.clear(); isrcCache.set(t.id, isrc); }
+      }
+    }
+    return {
     trackId: t.id || null,
     title: t.name,
     artist: (t.artists || []).map((a) => a.name).join(", "),
@@ -33,7 +49,9 @@ export default async function handler(req, res) {
     url: t.external_urls ? t.external_urls.spotify : null,
     progressMs: outer ? outer.progress_ms : null,
     durationMs: t.duration_ms || null,
-  });
+    isrc,
+    };
+  };
 
   try {
     const spSend = performance.now();
@@ -73,7 +91,7 @@ export default async function handler(req, res) {
           timestamp: Date.now(),
           deviceId: d.device ? d.device.id : null,
           deviceType: d.device ? d.device.type : null,
-          ...pick(d.item, d),
+          ...(await pick(d.item, d)),
           premium: !!sess.premium,
           spotifyTs: d.timestamp || null,
           spotifyRtt: Math.round(spRecv - spSend),
@@ -95,11 +113,12 @@ export default async function handler(req, res) {
         playing: false,
         timestamp: Date.now(),
         premium: !!sess.premium,
-        ...pick(r.items[0].track),
+        ...(await pick(r.items[0].track)),
       });
     }
     return res.status(200).json({ premium: !!sess.premium });
   } catch {
-    return res.status(200).json({ premium: !!sess.premium });
+    // network blip / upstream error: tell the client to keep what it has instead of "nothing playing"
+    return res.status(200).json({ transient: true, premium: !!sess.premium });
   }
 }

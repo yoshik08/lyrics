@@ -9,8 +9,7 @@
 html, body { margin: 0; padding: 0; }
 html {
   background: #08080a; color: #fff;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
-    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: "Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-text-size-adjust: 100%;
 }
 body { min-height: 100vh; min-height: 100dvh; overflow: hidden; }
@@ -20,11 +19,10 @@ body { min-height: 100vh; min-height: 100dvh; overflow: hidden; }
 }
 :focus-visible { outline: 2px solid rgba(255,255,255,.7); outline-offset: 3px; border-radius: 6px; }
 
-/* self-hosted display font (served by the main site) */
+/* display face: bundled with the app (relative url, so it resolves under the /lyrics/ mount too) */
 @font-face {
-  font-family: "Hanken Grotesk"; font-style: normal; font-weight: 400 700;
-  font-display: swap;
-  src: url("/assets/fonts/HankenGrotesk-400.woff2") format("woff2");
+  font-family: "Bricolage Grotesque"; font-style: normal; font-weight: 200 800; font-stretch: 75% 100%;
+  font-display: swap; src: url("assets/fonts/Bricolage-wdth.woff2") format("woff2");
 }
 
 /* ---------- landing ---------- */
@@ -43,13 +41,13 @@ body { min-height: 100vh; min-height: 100dvh; overflow: hidden; }
 }
 .landing-in { position: relative; z-index: 1; text-align: center; padding: 0 24px; }
 .landing-title {
-  font-family: "Hanken Grotesk", sans-serif; font-weight: 600;
+  font-family: "Bricolage Grotesque", system-ui, sans-serif; font-weight: 600;
   font-size: clamp(22px, 4vw, 34px); letter-spacing: -0.015em; margin: 0 0 22px;
 }
 .landing-btn {
   display: inline-flex; align-items: center; gap: 8px;
   background: #fff; color: #000; border: none; border-radius: 99px;
-  font-family: "Hanken Grotesk", sans-serif; font-weight: 600; font-size: 15px;
+  font-family: "Bricolage Grotesque", system-ui, sans-serif; font-weight: 600; font-size: 15px;
   padding: 13px 28px; cursor: pointer; text-decoration: none;
   transition: transform .15s ease;
 }
@@ -58,8 +56,7 @@ body { min-height: 100vh; min-height: 100dvh; overflow: hidden; }
 .landing-sub { color: rgba(255,255,255,.5); font-size: 13px; margin: 18px 0 0; }
 .landing-err { color: #fb7185; font-size: 13px; margin: 12px 0 0; min-height: 18px; }
 
-/* ---------- lyrics page (copied from the personal-site overlay) ---------- */
-/* lyrics button + synced lyrics overlay - apple music inspired */
+/* ---------- lyrics page (same css as the personal-site overlay) ---------- */
 .lyrics-overlay {
   position: fixed; inset: 0; z-index: 150; display: flex; flex-direction: column;
   background: rgba(8, 8, 10, .82); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
@@ -97,7 +94,7 @@ body { min-height: 100vh; min-height: 100dvh; overflow: hidden; }
 .lyrics-close:hover { background: rgba(255,255,255,.18); }
 .karaoke-toggle {
   background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); color: #fff;
-  height: 38px; border-radius: 99px; font-size: 13px; font-family: "Hanken Grotesk", sans-serif; font-weight: 500;
+  height: 38px; border-radius: 99px; font-size: 13px; font-family: "Bricolage Grotesque", system-ui, sans-serif; font-weight: 500;
   padding: 0 16px; cursor: pointer; display: flex; align-items: center; gap: 6px;
   transition: all .2s ease; backdrop-filter: blur(8px);
   pointer-events: auto;
@@ -124,7 +121,7 @@ body { min-height: 100vh; min-height: 100dvh; overflow: hidden; }
   background: transparent; border: none; color: #fff; height: 100%;
   border-left: 1px solid rgba(255,255,255,.14);
   border-right: 1px solid rgba(255,255,255,.14);
-  font-size: 13px; font-family: "Hanken Grotesk", sans-serif; font-weight: 500;
+  font-size: 13px; font-family: "Bricolage Grotesque", system-ui, sans-serif; font-weight: 500;
   font-variant-numeric: tabular-nums;
   padding: 0 14px; cursor: pointer; display: flex; align-items: center; gap: 6px;
   transition: background .2s ease; pointer-events: auto; min-width: 74px; justify-content: center;
@@ -143,88 +140,6 @@ body { min-height: 100vh; min-height: 100dvh; overflow: hidden; }
 @keyframes syncSpin { to { transform: rotate(360deg); } }
 html[data-motion="off"] .sync-btn.spinning svg { animation: none; }
 
-/* karaoke view styles */
-.lyrics-karaoke {
-  position: absolute; inset: 0; z-index: 10;
-  display: flex; flex-direction: column;
-  overflow: hidden;
-  pointer-events: none;
-}
-.k-top {
-  margin-top: 30px;
-  display: flex; flex-direction: column; align-items: center;
-  z-index: 12;
-  flex-shrink: 0;
-}
-.k-top-cover {
-  width: min(160px, 30vw); height: min(160px, 30vw);
-  border-radius: 12px; object-fit: cover;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-}
-.k-top-title {
-  margin-top: 14px; font-family: "Hanken Grotesk", sans-serif; font-weight: 700; font-size: 16px; color: #fff;
-}
-.k-top-artist {
-  margin-top: 4px; font-family: "Hanken Grotesk", sans-serif; font-size: 13px; color: rgba(255,255,255,0.7);
-}
-.k-top-prog {
-  margin-top: 12px; width: 140px; height: 3px; background: rgba(255,255,255,0.15); border-radius: 99px; overflow: hidden;
-}
-.k-top-prog i {
-  display: block; height: 100%; width: 0; background: #fff;
-}
-.k-tape-stage {
-  margin-top: 24px;
-  flex: 1; position: relative; width: 100%;
-  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 40px, #000 calc(100% - 40px), transparent 100%);
-  mask-image: linear-gradient(to bottom, transparent, #000 40px, #000 calc(100% - 40px), transparent 100%);
-}
-.k-tape-col {
-  position: absolute; top: 0; left: 0; right: 0;
-  display: flex; flex-direction: column; align-items: center;
-  gap: 20px; padding: 50vh 20px;
-  transition: none;
-  will-change: transform;
-  -webkit-backface-visibility: hidden; backface-visibility: hidden;
-}
-.k-tape-word {
-  font-family: "Bagel Fat One", "Black Han Sans", sans-serif;
-  font-size: clamp(32px, 8vw, 80px);
-  color: var(--k-inactive, rgba(255,255,255,0.3));
-  text-align: center;
-  max-width: 90vw;
-  line-height: 1.2;
-  position: relative;
-  z-index: 1;
-  padding: 8px 16px;
-  white-space: nowrap;
-  opacity: 0.3;
-}
-.k-tape-word.font-bubbly {
-  font-family: "Rubik Bubbles", "Black Han Sans", sans-serif;
-}
-.k-tape-word.active {
-  color: #000;
-  z-index: 2;
-  opacity: 1;
-  transform: rotate(var(--rot, 0deg)) scale(var(--scale, 1));
-  background: var(--k-accent, #fff);
-  clip-path: var(--clip, polygon(0 0, 100% 0, 100% 100%, 0 100%));
-  animation: kTapePop 120ms cubic-bezier(0.2, 1.4, 0.4, 1) forwards;
-}
-  .k-tape-word.k-rest {
-    opacity: 0.2;
-    filter: grayscale(1);
-    transform: rotate(0deg) scale(0.9);
-  }
-@keyframes kTapePop {
-  0% { transform: rotate(var(--rot, 0deg)) scale(calc(var(--scale, 1) * 1)); }
-  50% { transform: rotate(var(--rot, 0deg)) scale(calc(var(--scale, 1) * 1.08)); }
-  100% { transform: rotate(var(--rot, 0deg)) scale(calc(var(--scale, 1) * 1)); }
-}
-
 /* classic layout */
 .lyrics-body {
   position: relative; z-index: 1; flex: 1; min-height: 0;
@@ -235,7 +150,7 @@ html[data-motion="off"] .sync-btn.spinning svg { animation: none; }
   width: 100%; aspect-ratio: 1; border-radius: 14px; object-fit: cover; background: #1a1a1e;
   box-shadow: 0 24px 70px rgba(0,0,0,.55); display: block;
 }
-.lyrics-title { color: #fff; font-family: "Hanken Grotesk", sans-serif; font-weight: 600; font-size: 17px; margin: 18px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lyrics-title { color: #fff; font-family: "Bricolage Grotesque", system-ui, sans-serif; font-weight: 600; font-size: 17px; margin: 18px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lyrics-title a { color: inherit; text-decoration: none; }
 .lyrics-title a[href]:hover { text-decoration: underline; }
 .lyrics-artist { color: rgba(255,255,255,.55); font-size: 14px; margin: 5px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -252,7 +167,7 @@ html[data-motion="off"] .sync-btn.spinning svg { animation: none; }
 .lyrics-lines::-webkit-scrollbar { display: none; }
 .lyr-line {
   color: rgba(255,255,255,.32);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: "Bricolage Grotesque", system-ui, sans-serif; font-variation-settings: "wdth" 90;
   font-weight: 700; letter-spacing: -0.015em;
   font-size: clamp(22px, 2.9vw, 34px); line-height: 1.35; margin: 0; padding: 16px 0;
   transition: color .12s ease;
@@ -264,10 +179,6 @@ html[data-motion="off"] .sync-btn.spinning svg { animation: none; }
 .lyr-line.past { color: rgba(255,255,255,.45); }
 .emo { display: inline-block; margin-left: .25em; font-size: 1em; line-height: 1; }
 .ios-emo { height: 1em; width: 1em; vertical-align: -0.12em; display: inline-block; }
-.k-tape-word .emo .ios-emo { height: 1em; width: 1em; vertical-align: -0.12em; }
-.k-tape-word.active .emo { animation: emoPop .35s cubic-bezier(.2,1.6,.4,1); }
-@keyframes emoPop { 0% { transform: scale(.4) rotate(-15deg); } 60% { transform: scale(1.35) rotate(8deg); } 100% { transform: scale(1); } }
-html[data-motion="off"] .k-tape-word.active .emo { animation: none; }
 .lyrics-hint { position: relative; z-index: 2; text-align: center; color: rgba(255,255,255,.4); font-size: 12px; padding: 0 20px 26px; margin: 0; min-height: 18px; }
 .lyrics-side-text { min-width: 0; }
 @media (max-width: 700px) {
@@ -281,11 +192,63 @@ html[data-motion="off"] .k-tape-word.active .emo { animation: none; }
   .lyrics-side { flex-wrap: wrap; }
   .lyrics-progress { flex: 1 1 100%; margin-top: 6px; }
   .lyr-line { padding: 12px 0; }
+}
+
+/* ---------- shared bits ---------- */
+.emo { display: inline-block; margin-left: .25em; line-height: 1; }
+.ios-emo { height: 1em; width: 1em; vertical-align: -0.12em; display: inline-block; }
+.lyrics-vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(120% 90% at 50% 50%, transparent 55%, rgba(0,0,0,.5)); }
+.lyrics-hint { position: absolute; left: 0; right: 0; bottom: 0; z-index: 40; }
+@keyframes ovIn { from { transform: scale(1.03); } to { transform: none; } }
+.lyrics-overlay.open .lyrics-body, .lyrics-overlay.open .lyrics-karaoke { animation: ovIn .6s cubic-bezier(.16,1,.3,1); }
+
+/* ---------- karaoke mode: near-black, no chrome ---------- */
+.lyrics-overlay.karaoke-mode { background: #050507; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.lyrics-overlay.karaoke-mode .lyrics-bg, .lyrics-overlay.karaoke-mode .lyrics-vignette { display: none; }
+.lyrics-karaoke { position: absolute; inset: 0; z-index: 10; display: flex; }
+.lyrics-karaoke .vk { flex: 1; }
+.vk-meta {
+  position: absolute; left: 22px; bottom: 22px; z-index: 20; display: flex; align-items: center; gap: 12px; max-width: 34vw;
+  pointer-events: none; transition: opacity .35s ease;
+}
+.vk-meta img { width: 44px; height: 44px; border-radius: 10px; object-fit: cover; background: #1a1a1e; }
+.vk-meta div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.vk-meta b { font-weight: 650; font-size: 14px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vk-meta span { font-size: 12px; color: rgba(255,255,255,.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vk-prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; z-index: 20; background: rgba(255,255,255,.06); }
+.vk-prog i { display: block; height: 100%; width: 0; background: var(--vk-hl, #ff3d8b); }
+/* chrome fades out when the pointer rests (script.js toggles .idle) */
+.lyrics-overlay.karaoke-mode.idle .lyrics-controls,
+.lyrics-overlay.karaoke-mode.idle .vk-settings,
+.lyrics-overlay.karaoke-mode.idle .vk-meta { opacity: 0; pointer-events: none; }
+.lyrics-overlay.karaoke-mode.idle { cursor: none; }
+@media (max-width: 700px) {
+  .vk-meta { left: 14px; bottom: auto; top: 18px; max-width: 52vw; }
+  .vk-settings { bottom: 14px; }
+}
+html[data-motion="off"] .lyrics-overlay.open .lyrics-body, html[data-motion="off"] .lyrics-overlay.open .lyrics-karaoke { animation: none; }
+
+/* a song with its own offset says so, permanently (it can't silently look like "Sync") */
+.sync-btn.custom { color: #ffd84d; background: rgba(255, 216, 77, .12); }
+
+/* headphones toggle (shares the pill look of the karaoke toggle) */
+.hp-toggle.active { background: #fff; color: #000; border-color: #fff; }
+@media (max-width: 700px) { .hp-toggle span { display: none; } .hp-toggle { padding: 0 12px; } }
+/* phones: five controls must fit on one row */
+@media (max-width: 700px) {
+  .lyrics-controls { top: 14px; right: 12px; gap: 8px; }
+  .karaoke-toggle { padding: 0 12px; }
+  #karaokeToggle { font-size: 0; gap: 0; }            /* icon only (the svg keeps its own size) */
+  .sync-btn { min-width: 62px; padding: 0 10px; }
+  .sync-nudge { width: 28px; }
+}
 
 /* ---------- playback controls (same visual language as the overlay) ---------- */
 .playback-controls { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
 .playback-controls[hidden] { display: none; }
-.lyrics-karaoke .playback-controls { justify-content: center; margin-top: 12px; }
+/* karaoke view: controls sit in the top-left corner, fade with the rest of the chrome */
+.vk-pb { position: absolute; left: 22px; top: 22px; z-index: 30; margin: 0; transition: opacity .35s ease; }
+.lyrics-overlay.karaoke-mode.idle .vk-pb { opacity: 0; pointer-events: none; }
 .pb-btn {
   background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); color: #fff;
   width: 38px; height: 38px; border-radius: 50%; cursor: pointer; flex-shrink: 0;
@@ -304,6 +267,10 @@ html[data-motion="off"] .k-tape-word.active .emo { animation: none; }
 @media (max-width: 700px) {
   .playback-controls { margin-top: 10px; }
   .lyrics-side { align-items: center; }
+  /* phones: the settings bar is two rows tall, so the transport sits above it; the title would run
+     under the control row at the top, so only the cover is kept there */
+  .vk-pb { left: 50%; top: auto; bottom: 128px; transform: translateX(-50%); }
+  .vk-meta div { display: none; }
 }
 
 /* small dot cursor */
